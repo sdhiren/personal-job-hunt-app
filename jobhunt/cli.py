@@ -40,6 +40,9 @@ def scrape(
         f"Matches: [bold]{d.get('apply', 0)}[/], review: {d.get('review', 0)}"
         + (f", Claude scored {result['claude_scored']}" if result["claude_used"] else "")
     )
+    if limit := result.get("claude_limit"):
+        resets = f" — resets {limit['resets']}" if limit["resets"] else ""
+        console.print(f"[yellow]Claude usage limit:[/] {limit['reason']}{resets}. Remaining jobs are scored next time.")
     console.print("Next: [bold]./jh app[/] for the app, or [bold]./jh list[/].")
 
 

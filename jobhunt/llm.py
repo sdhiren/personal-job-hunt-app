@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 
-from .claude_backend import ClaudeError, backend
+from .claude_backend import ClaudeError, ClaudeUsageLimit, backend
 from .config import profile, resume_text
 from .models import Job
 
@@ -153,6 +153,8 @@ def assess(job: Job) -> dict | None:
     )
     try:
         return backend().structured(prompt, ASSESS_SCHEMA, ASSESS_SYSTEM)
+    except ClaudeUsageLimit:
+        raise  # the caller stops scoring; retrying the next job would fail the same way
     except ClaudeError as e:
         log.warning("assess failed for %s: %s", job.id, e)
         return None

@@ -283,7 +283,10 @@ def job_score(body: dict):
             claude_backend.backend()
         except claude_backend.ClaudeError as e:
             raise HTTPException(400, str(e)) from e
-        a = llm.assess(job)
+        try:
+            a = llm.assess(job)
+        except claude_backend.ClaudeUsageLimit as e:
+            raise HTTPException(429, f"{e}. Try again after it resets.") from e
         if not a:
             raise HTTPException(502, "Claude couldn't score this job")
         db.save_evaluation(conn, job.id, _eval(job, a), json.dumps(a))
