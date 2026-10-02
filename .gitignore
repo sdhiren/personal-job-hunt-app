@@ -11,3 +11,8 @@ __pycache__/
 .ruff_cache/
 .claude/
 .DS_Store
+
+# Local-only automation: TODO list, daily Claude runner and reminder (a link to
+# ~/Library/Application Support/jobhunt/automation), and personal Claude instructions
+/automation
+CLAUDE.local.md

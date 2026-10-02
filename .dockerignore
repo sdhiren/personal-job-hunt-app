@@ -12,3 +12,7 @@ __pycache__/
 .ruff_cache/
 .claude/
 .DS_Store
+
+# Local-only automation and personal Claude instructions
+automation
+CLAUDE.local.md
