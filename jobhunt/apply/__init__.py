@@ -16,6 +16,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..claude_backend import ClaudeUsageLimit
 from ..config import BROWSER_PROFILE_DIR, SCREENSHOT_DIR, ensure_dirs, profile, resume_path
 from ..models import Job
 
@@ -181,8 +182,10 @@ def _open_form(page, job: Job) -> None:
             continue
 
 
-def _fill(page, job: Job, abroad: bool, use_llm: bool) -> tuple[dict, str | None, list[str]]:
-    """Fill what we can. Returns (answers, cover_letter, unfilled_required_labels)."""
+def _fill(page, job: Job, abroad: bool, use_llm: bool) -> tuple[dict, str | None, list[str], bool]:
+    """Fill what we can. Returns (answers, cover_letter, unfilled_required_labels, use_llm).
+
+    `use_llm` comes back False once Claude reports a usage limit, so the caller stops drafting."""
     answers: dict[str, str] = {}
     cover: str | None = None
     rules = _field_values(job, abroad)
@@ -230,13 +233,16 @@ def _fill(page, job: Job, abroad: bool, use_llm: bool) -> tuple[dict, str | None
             if value:
                 loc.fill(value)
                 answers[key] = value
+        except ClaudeUsageLimit as e:
+            log.warning("Claude usage limit reached, leaving free-text answers to you: %s", e)
+            use_llm = False
         except Exception as e:
             log.debug("could not fill %s: %s", label, e)
 
     page.wait_for_timeout(800)
     after = page.evaluate(COLLECT_JS)
     missing = [f["label"].split(" | ")[0][:80] for f in after if f["required"] and f["empty"]]
-    return answers, cover, missing
+    return answers, cover, missing, use_llm
 
 
 def _submit(page) -> bool:
@@ -307,7 +313,7 @@ class Applier:
             if job.ats not in ("greenhouse", "lever", "ashby"):
                 return self._manual(page, job, ask, "not a supported ATS form — apply in the opened tab")
 
-            answers, cover, missing = _fill(page, job, abroad, self.use_llm)
+            answers, cover, missing, self.use_llm = _fill(page, job, abroad, self.use_llm)
             shot = _shot(page, job, "filled")
 
             if self.mode == "auto" and not missing and not _captcha_visible(page):

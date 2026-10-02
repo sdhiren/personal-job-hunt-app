@@ -59,14 +59,21 @@ class SearchTask:
 
 
 class ApplyQueue:
-    """Applications are processed one by one in a visible browser; you review and click Submit."""
+    """Applications are processed one by one in a visible browser; you review and click Submit.
+
+    One worker thread at a time owns the browser. `_running` is changed only under `lock`, and the
+    worker re-checks the queue under that lock before exiting, so a job queued while the browser is
+    closing is never stranded.
+    """
+
+    idle_timeout = 5.0  # seconds without new jobs before the browser is closed
 
     def __init__(self):
         self.q: queue.Queue[str] = queue.Queue()
         self.current: dict | None = None
         self.pending: list[str] = []
         self.lock = threading.Lock()
-        self.thread: threading.Thread | None = None
+        self._running = False
 
     def snapshot(self) -> dict:
         with self.lock:
@@ -78,10 +85,13 @@ class ApplyQueue:
             }
 
     def add(self, job_ids: list[str]) -> int:
+        """Queue jobs, within today's limit (applied today + already queued count against it)."""
         from .config import profile
 
         with db.connect() as conn:
-            budget = profile()["apply"]["max_per_day"] - db.applied_today(conn)
+            with self.lock:
+                in_flight = len(self.pending) + (1 if self.current else 0)
+            budget = profile()["apply"]["max_per_day"] - db.applied_today(conn) - in_flight
             added = 0
             for jid in job_ids:
                 if added >= budget:
@@ -89,41 +99,55 @@ class ApplyQueue:
                 with self.lock:
                     if jid in self.pending or (self.current and self.current["job_id"] == jid):
                         continue
-                    self.pending.append(jid)
                 db.set_status(conn, jid, "queued", note="queued from app")
-                self.q.put(jid)
+                conn.commit()  # visible before the worker picks it up
+                with self.lock:
+                    self.pending.append(jid)
+                    self.q.put(jid)
+                    if not self._running:
+                        self._running = True
+                        threading.Thread(target=self._worker, daemon=True).start()
                 added += 1
-        if added and (self.thread is None or not self.thread.is_alive()):
-            self.thread = threading.Thread(target=self._worker, daemon=True)
-            self.thread.start()
         return added
 
     def _worker(self):
         from .apply import Applier
+
+        try:
+            while True:
+                with Applier(review_timeout=600) as applier:
+                    self._drain(applier)
+                with self.lock:
+                    if self.q.empty():
+                        self._running = False
+                        return
+                # more jobs arrived while the browser was closing: open it again
+        except Exception:
+            traceback.print_exc()
+            with self.lock:
+                self._running = False
+
+    def _drain(self, applier) -> None:
         from .services import apply_job
 
-        with Applier(review_timeout=600) as applier:
-            while True:
+        while True:
+            try:
+                jid = self.q.get(timeout=self.idle_timeout)
+            except queue.Empty:
+                return
+            with self.lock:
+                self.pending = [p for p in self.pending if p != jid]
+            with db.connect() as conn:
+                r = conn.execute("SELECT * FROM jobs WHERE id=%s", (jid,)).fetchone()
+                if not r:
+                    continue
+                with self.lock:
+                    self.current = {"job_id": jid, "company": r["company"], "title": r["title"], "since": time.time()}
                 try:
-                    jid = self.q.get(timeout=5)
-                except queue.Empty:
-                    break
-                with self.lock:
-                    self.pending = [p for p in self.pending if p != jid]
-                with db.connect() as conn:
-                    r = conn.execute("SELECT * FROM jobs WHERE id=%s", (jid,)).fetchone()
-                    if not r:
-                        continue
-                    with self.lock:
-                        self.current = {
-                            "job_id": jid,
-                            "company": r["company"],
-                            "title": r["title"],
-                            "since": time.time(),
-                        }
                     apply_job(conn, applier, r)
-                with self.lock:
-                    self.current = None
+                finally:
+                    with self.lock:
+                        self.current = None
 
 
 search_task = SearchTask()

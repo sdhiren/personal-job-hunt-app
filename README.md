@@ -28,7 +28,7 @@ Pick one in **Settings**:
 What Claude does (each can be switched off):
 1. **Reads your resume** and fills in your profile and skills.
 2. **Searches the web** for open roles in each region you chose (about 10 per region per search). It prefers direct ATS links, so those can be auto-filled too.
-3. **Scores your best matches** against your resume, plus every job it found itself, about 40 per search.
+3. **Scores your best matches** against your resume: up to 40 per search, starting with the jobs it found itself. Scoring stops early if your Claude usage limit is reached, and the remaining jobs are scored on a later search.
 4. **Drafts answers** to free-text application questions, using only facts from your resume.
 
 ## Job rules (editable on the Profile page)

@@ -656,7 +656,7 @@ async function renderSettings(el) {
     <section class="card pad">
       <div class="section-title"><span class="ic">${svg("spark")}</span><h2>What Claude does</h2></div>
       <div class="stack">
-        ${[["use_claude_discovery", "Search the web for more jobs", "Finds postings beyond the built-in company boards"], ["use_claude_scoring", "Score my top matches", "Reads each job against your resume (up to 40 per search, plus every job Claude finds)"], ["use_claude_answers", "Draft answers on application forms", "Cover letters and free-text questions, from your resume only"]].map(([k, t, d]) =>
+        ${[["use_claude_discovery", "Search the web for more jobs", "Finds postings beyond the built-in company boards"], ["use_claude_scoring", "Score my top matches", "Reads each job against your resume (up to 40 per search, jobs Claude found first)"], ["use_claude_answers", "Draft answers on application forms", "Cover letters and free-text questions, from your resume only"]].map(([k, t, d]) =>
           `<label class="switch"><input type="checkbox" data-set="${k}" ${s[k] ? "checked" : ""}><span class="track"></span><span>${t}<div class="small muted" style="font-weight:400">${d}</div></span></label>`).join("")}
         <label class="f" style="max-width:240px">Jobs to find per region <input type="number" min="3" max="40" data-setnum="discovery_per_region" value="${s.discovery_per_region}"></label>
       </div>

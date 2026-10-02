@@ -185,6 +185,8 @@ def draft_answer(job: Job, question: str, max_words: int = 150) -> str | None:
     )
     try:
         return backend().structured(prompt, ANSWER_SCHEMA, system).get("answer") or None
+    except ClaudeUsageLimit:
+        raise  # the form filler stops drafting for the rest of the run
     except ClaudeError as e:
         log.warning("draft failed: %s", e)
         return None
