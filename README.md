@@ -14,7 +14,7 @@ make run        # or run the app natively (PostgreSQL still runs in Docker)
 | **Dashboard** | Your profile at a glance (details, pay, notice period, target titles, skills), job counts, the application pipeline, matches by region, top matches and recent activity. |
 | **Jobs** | Matches, Needs review and Filtered out tabs, with search, region and WFH filters. Each job shows its score, WFH, visa and rating. Click a job for the reasons behind its score, Claude's strengths/gaps, and the description. Apply singly or select several jobs to apply in bulk. |
 | **Applications** | A Kanban board (To do → Applied → Screening → Interviewing → Offer → Closed). Drag cards to change status, open a card for its history and notes, and export to CSV. |
-| **My profile** | Upload a resume (PDF, DOCX or TXT). **Fill profile from resume** has Claude extract your details, target titles and weighted skills. You can edit everything: salary (current, expected, currency), notice period, visa and relocation, regions, preferred cities, matching thresholds and apply mode. Saving re-scores all stored jobs. |
+| **My profile** | Upload a resume (PDF, DOCX or TXT). **Fill profile from resume** has Claude extract your details, target titles and weighted skills. You can edit everything: salary (current, expected, currency), notice period, visa and relocation, regions, preferred cities, matching thresholds and apply mode. After saving, you're asked whether to run a job search now, which also re-scores your saved jobs. |
 | **Settings** | Connect Claude, choose what Claude does, and pick job sources. |
 
 ## Connecting Claude
@@ -76,6 +76,10 @@ make help      # every command (search, list, apply, track, database, Docker, li
 ```
 
 To use a PostgreSQL you already run, set `DATABASE_URL` in `.env` (for example `postgresql://user:pass@localhost:5432/jobhunt`) and start the app with `PYTHONPATH=. .venv/bin/python -m jobhunt app`. The tables are created automatically on first start.
+
+### Settings (`.env`)
+
+Copy `.env.example` to `.env` **before the first start**. Both the app and `docker compose` read it. The database password can contain any character, but wrap the value in single quotes if it contains `$` (for example `POSTGRES_PASSWORD='My$ecret@123'`). `POSTGRES_*` values are applied only when the database is first created. To change them later, either run `ALTER USER … PASSWORD …` in `make db-shell`, or start fresh with `docker compose down -v`, which **deletes the data**, so run `make db-backup` first. If the app can't connect, it says why (for example *password authentication failed*) and exits.
 
 ### Moving from the SQLite version
 

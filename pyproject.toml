@@ -17,10 +17,11 @@ dependencies = [
     "anthropic>=1.0",
     "python-multipart>=0.0.9",
     "psycopg[binary,pool]>=3.2",
+    "python-dotenv>=1.0",
 ]
 
 [project.scripts]
-jobhunt = "jobhunt.cli:app"
+jobhunt = "jobhunt.cli:main"
 
 [build-system]
 requires = ["hatchling"]

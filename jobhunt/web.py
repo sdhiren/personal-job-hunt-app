@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -32,6 +32,11 @@ STATIC = Path(__file__).parent / "static"
 api = FastAPI(title="jobhunt")
 
 
+@api.exception_handler(db.DatabaseUnavailable)
+def database_unavailable(request, exc: db.DatabaseUnavailable):
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+
 # ---------------------------------------------------------------- profile & resume
 
 
@@ -49,9 +54,7 @@ def put_profile(body: dict):
         if not s.get("pattern"):
             s["pattern"] = skill_pattern(s["name"], s.get("aliases"))
         s.pop("aliases", None)
-    p = save_profile(body)
-    search_task.start(kind="rematch")  # re-score stored jobs against the new profile
-    return p
+    return save_profile(body)  # the UI then offers a job search, which re-scores stored jobs too
 
 
 @api.post("/api/resume")
@@ -185,7 +188,7 @@ def put_settings(body: dict):
 @api.post("/api/search")
 def start_search(body: dict | None = None):
     use_claude = (body or {}).get("use_claude")
-    if not search_task.start(kind="search", use_claude=use_claude):
+    if not search_task.start(use_claude=use_claude):
         raise HTTPException(409, "A search is already running")
     return search_task.snapshot()
 

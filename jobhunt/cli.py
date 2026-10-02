@@ -273,11 +273,26 @@ def run_app(
 
     from .web import api
 
+    if _port_in_use(host, port):
+        console.print(
+            f"[red]Port {port} is already in use[/] — is jobhunt already running (another terminal, or `make up`)? "
+            f"Stop it, or start this one on another port with JOBHUNT_PORT in .env."
+        )
+        raise typer.Exit(1)
+    db.pool()  # fail now with a clear message rather than on the first page load
+
     url = f"http://127.0.0.1:{port}"
     console.print(f"jobhunt is running at [bold]{url}[/]  (Ctrl+C to stop)")
     if open_browser:
         threading.Timer(1.2, lambda: webbrowser.open(url)).start()
     uvicorn.run(api, host=host, port=port, log_level="warning")
+
+
+def _port_in_use(host: str, port: int) -> bool:
+    import socket
+
+    with socket.socket() as s:
+        return s.connect_ex(("127.0.0.1" if host in ("0.0.0.0", "") else host, port)) == 0
 
 
 @app.command(hidden=True)
@@ -312,5 +327,14 @@ def check_companies():
                 console.print(f"[red]fail[/] {c.name:18} {c.ats:10} {e}")
 
 
+def main() -> None:
+    """Entry point: run a command, showing database problems as a message instead of a traceback."""
+    try:
+        app()
+    except db.DatabaseUnavailable as e:
+        console.print(f"[red]{e}[/]")
+        sys.exit(1)
+
+
 if __name__ == "__main__":
-    sys.exit(app())
+    main()
