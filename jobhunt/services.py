@@ -10,7 +10,7 @@ import re
 import threading
 from collections.abc import Callable
 
-from . import db
+from . import db, prompts
 from .claude_backend import ClaudeError, ClaudeUsageLimit
 from .claude_backend import status as claude_status
 from .config import profile, settings
@@ -144,11 +144,14 @@ def claude_score(conn, progress: Progress = _noop, limit: int = 40) -> tuple[int
 
     prefilter = profile()["matching"].get("llm_prefilter_score", 45)
     hard_reject = ("title not a fit", "location out of scope", "posting too old", "JD says no", "duplicate")
-    # Claude-discovered jobs only have a short summary, so keyword scores undersell them: always score those
+    # Candidates: never scored, or scored with an older version of the scoring prompt (unscored first).
+    # Claude-discovered jobs only have a short summary, so keyword scores undersell them: always score those.
     rows = conn.execute(
-        "SELECT * FROM jobs WHERE llm_json IS NULL AND ((decision IN ('apply','review') AND kw_score >= %s) "
-        "OR source='claude') ORDER BY source='claude' DESC, kw_score DESC NULLS LAST",
-        (prefilter,),
+        "SELECT * FROM jobs "
+        "WHERE (llm_json IS NULL OR COALESCE(llm_json::jsonb->>'prompt_version', %(legacy)s) <> %(current)s) "
+        "AND ((decision IN ('apply','review') AND kw_score >= %(prefilter)s) OR source='claude') "
+        "ORDER BY llm_json IS NULL DESC, source='claude' DESC, kw_score DESC NULLS LAST",
+        {"legacy": prompts.LEGACY_ASSESS_VERSION, "current": prompts.ASSESS.version, "prefilter": prefilter},
     ).fetchall()
     rows = [r for r in rows if not json.loads(r["reasons"] or '[""]')[0].startswith(hard_reject)][:limit]
     done = scored = 0
@@ -259,7 +262,7 @@ def run_search(progress: Progress = _noop, sources: list[str] | None = None, use
                 progress("Skipping Claude scoring until the usage limit resets", None)
             else:
                 scored, limit = claude_score(conn, progress)
-        counts = dict(conn.execute("SELECT decision, COUNT(*) FROM jobs GROUP BY decision").fetchall())
+        counts = db.pairs(conn, "SELECT decision, COUNT(*) FROM jobs GROUP BY decision")
     summary = {
         "fetched": len(jobs),
         "new": new,
@@ -275,11 +278,9 @@ def run_search(progress: Progress = _noop, sources: list[str] | None = None, use
 
 def stats() -> dict:
     with db.connect() as conn:
-        q = lambda sql, *a: conn.execute(sql, a).fetchone()[0]  # noqa: E731
-        by_status = dict(conn.execute("SELECT status, COUNT(*) FROM applications GROUP BY status").fetchall())
-        by_region = dict(
-            conn.execute("SELECT region, COUNT(*) FROM jobs WHERE decision='apply' GROUP BY region").fetchall()
-        )
+        q = lambda sql: db.scalar(conn, sql)  # noqa: E731
+        by_status = db.pairs(conn, "SELECT status, COUNT(*) FROM applications GROUP BY status")
+        by_region = db.pairs(conn, "SELECT region, COUNT(*) FROM jobs WHERE decision='apply' GROUP BY region")
         recent = [
             dict(r)
             for r in conn.execute(

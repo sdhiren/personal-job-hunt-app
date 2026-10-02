@@ -5,8 +5,10 @@ from __future__ import annotations
 import csv
 import io
 import json
+import os
 import re
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -30,6 +32,34 @@ from .tasks import apply_queue, search_task
 
 STATIC = Path(__file__).parent / "static"
 api = FastAPI(title="jobhunt")
+
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def allowed_hosts() -> set[str]:
+    """Host names the app answers to: localhost, plus any listed in JOBHUNT_ALLOWED_HOSTS (comma-separated)."""
+    extra = os.environ.get("JOBHUNT_ALLOWED_HOSTS", "")
+    return LOCAL_HOSTS | {h.strip().lower() for h in extra.split(",") if h.strip()}
+
+
+@api.middleware("http")
+async def local_requests_only(request, call_next):
+    """The app has no login, so only answer the user's own browser tab.
+
+    * A Host header that isn't localhost means a DNS-rebinding page is talking to us: refuse everything.
+    * A write whose Origin is another site (or `Sec-Fetch-Site: cross-site`) is a cross-site request
+      forgery, e.g. a web page starting a search that spends your Claude quota: refuse it.
+    Requests without an Origin (curl, the CLI, tests) are allowed; browsers always send one on writes.
+    """
+    if (request.url.hostname or "").lower() not in allowed_hosts():
+        return JSONResponse(status_code=403, content={"detail": "Unknown host; open the app via localhost"})
+    if request.method in UNSAFE_METHODS:
+        origin = request.headers.get("origin")
+        cross_origin = origin is not None and urlsplit(origin).netloc != request.headers.get("host")
+        if cross_origin or request.headers.get("sec-fetch-site") in ("cross-site", "same-site"):
+            return JSONResponse(status_code=403, content={"detail": "Cross-site request refused"})
+    return await call_next(request)
 
 
 @api.exception_handler(db.DatabaseUnavailable)
@@ -232,7 +262,7 @@ def jobs(
         sql += " AND (a.status IS NULL OR a.status = ANY(%s))"
         args.append(list(db.OPEN_STATUSES))
     with db.connect() as conn:
-        total = conn.execute(f"SELECT COUNT(*) FROM ({sql}) AS matched", args).fetchone()[0]
+        total = db.scalar(conn, f"SELECT COUNT(*) FROM ({sql}) AS matched", args)
         rows = conn.execute(
             sql + " ORDER BY j.score DESC NULLS LAST, j.posted_at DESC NULLS LAST LIMIT %s OFFSET %s",
             (*args, limit, offset),
@@ -379,7 +409,7 @@ def export_csv():
             "j.is_wfh, j.visa, j.rating, j.score, j.url, a.notes FROM applications a JOIN jobs j ON "
             "j.id=a.job_id ORDER BY a.updated_at DESC"
         ):
-            w.writerow(tuple(r))
+            w.writerow(r.values())
     return StreamingResponse(
         iter([buf.getvalue()]),
         media_type="text/csv",

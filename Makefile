@@ -1,4 +1,4 @@
-.PHONY: help install run search list apply track import-sqlite \
+.PHONY: help install run search list apply track import-sqlite test \
 	db-up db-down db-shell db-backup db-restore \
 	up down build restart logs shell browser docker-claude-login \
 	docker-search docker-list docker-apply docker-track docker-import-sqlite \
@@ -110,8 +110,11 @@ docker-import-sqlite:  ## Copy data from data/jobhunt.db into PostgreSQL (in Doc
 ##@ Development
 
 lint:  ## Lint and check formatting
-	$(PY) -m ruff check jobhunt
-	$(PY) -m ruff format --check jobhunt
+	$(PY) -m ruff check jobhunt tests
+	$(PY) -m ruff format --check jobhunt tests
+
+test:  ## Run the test suite (no database or Claude needed)
+	PYTHONPATH=. $(PY) -m pytest -q tests
 
 format:  ## Auto-format and fix lint issues
 	$(PY) -m ruff format jobhunt
