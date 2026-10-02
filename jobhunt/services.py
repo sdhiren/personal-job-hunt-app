@@ -7,10 +7,11 @@ import hashlib
 import json
 import logging
 import re
+import threading
 from collections.abc import Callable
 
 from . import db
-from .claude_backend import ClaudeError
+from .claude_backend import ClaudeError, ClaudeUsageLimit
 from .claude_backend import status as claude_status
 from .config import profile, settings
 from .matching import evaluate
@@ -47,12 +48,13 @@ def _ats_from_url(url: str) -> tuple[str | None, str | None, str | None, str | N
     return None, None, None, None
 
 
-def discover(progress: Progress = _noop) -> tuple[list[Job], list[str]]:
+def discover(progress: Progress = _noop) -> tuple[list[Job], list[str], ClaudeUsageLimit | None]:
     from . import llm
 
     regions = [r for r in profile()["search"]["regions"] if r in llm.REGION_HINT]
     per = int(settings().get("discovery_per_region", 12))
     jobs, errors = [], []
+    limit: ClaudeUsageLimit | None = None
 
     def one(region):
         return region, llm.discover_jobs(region, per)
@@ -63,6 +65,9 @@ def discover(progress: Progress = _noop) -> tuple[list[Job], list[str]]:
         for f in cf.as_completed(futures):
             try:
                 region, found = f.result()
+            except ClaudeUsageLimit as e:
+                limit = limit or e
+                continue
             except ClaudeError as e:
                 errors.append(f"Claude discovery: {e}")
                 continue
@@ -98,7 +103,7 @@ def discover(progress: Progress = _noop) -> tuple[list[Job], list[str]]:
                         },
                     )
                 )
-    return jobs, errors
+    return jobs, errors, limit
 
 
 # ---------------------------------------------------------------- evaluation
@@ -130,8 +135,11 @@ def evaluate_all(conn, progress: Progress = _noop) -> None:
     conn.commit()
 
 
-def claude_score(conn, progress: Progress = _noop, limit: int = 40) -> int:
-    """Have Claude re-score the best not-yet-scored candidates (costs quota/tokens, so capped)."""
+def claude_score(conn, progress: Progress = _noop, limit: int = 40) -> tuple[int, ClaudeUsageLimit | None]:
+    """Have Claude re-score the best not-yet-scored candidates (costs quota/tokens, so capped).
+
+    Stops at the first usage-limit error: every later call would fail the same way until the limit resets.
+    Returns (jobs scored, the limit error if one stopped the run)."""
     from . import llm
 
     prefilter = profile()["matching"].get("llm_prefilter_score", 45)
@@ -143,23 +151,36 @@ def claude_score(conn, progress: Progress = _noop, limit: int = 40) -> int:
         (prefilter,),
     ).fetchall()
     rows = [r for r in rows if not json.loads(r["reasons"] or '[""]')[0].startswith(hard_reject)][:limit]
-    done = 0
+    done = scored = 0
+    stop = threading.Event()
+    hit: list[ClaudeUsageLimit] = []
 
     def one(r):
+        if stop.is_set():
+            return None, None  # limit already reached: don't spend a call that will fail
         job = db.row_to_job(r)
-        return job, llm.assess(job)
+        try:
+            return job, llm.assess(job)
+        except ClaudeUsageLimit as e:
+            hit.append(e)
+            stop.set()
+            return job, None
 
     with cf.ThreadPoolExecutor(max_workers=3) as ex:
         for job, a in ex.map(one, rows):
             done += 1
+            if not a:
+                continue
+            scored += 1
             pct = 0.8 + 0.2 * done / max(1, len(rows))
-            progress(f"Claude scored {done}/{len(rows)}: {job.company} — {job.title}", pct)
-            if a:
-                db.save_evaluation(conn, job.id, _eval(job, a), json.dumps(a))
-                conn.commit()
+            progress(f"Claude scored {scored}/{len(rows)}: {job.company} — {job.title}", pct)
+            db.save_evaluation(conn, job.id, _eval(job, a), json.dumps(a))
+            conn.commit()
+    if hit:
+        progress(f"Stopped scoring: {hit[0]}. {len(rows) - scored} jobs left for the next search.", None)
     mark_duplicates(conn)
     conn.commit()
-    return done
+    return scored, hit[0] if hit else None
 
 
 def mark_duplicates(conn) -> None:
@@ -219,10 +240,13 @@ def run_search(progress: Progress = _noop, sources: list[str] | None = None, use
     errors += errs
     progress(f"Fetched {len(jobs)} jobs from {len(sources)} sources", 0.35)
 
+    limit: ClaudeUsageLimit | None = None
     if claude_ok and st.get("use_claude_discovery"):
-        found, errs = discover(progress)
+        found, errs, limit = discover(progress)
         jobs += found
         errors += errs
+        if limit:
+            progress(f"Claude web search stopped: {limit}", None)
 
     with db.connect() as conn:
         new, updated = db.upsert_jobs(conn, jobs)
@@ -231,7 +255,10 @@ def run_search(progress: Progress = _noop, sources: list[str] | None = None, use
         evaluate_all(conn, progress)
         scored = 0
         if claude_ok and st.get("use_claude_scoring"):
-            scored = claude_score(conn, progress)
+            if limit:
+                progress("Skipping Claude scoring until the usage limit resets", None)
+            else:
+                scored, limit = claude_score(conn, progress)
         counts = dict(conn.execute("SELECT decision, COUNT(*) FROM jobs GROUP BY decision").fetchall())
     summary = {
         "fetched": len(jobs),
@@ -240,6 +267,7 @@ def run_search(progress: Progress = _noop, sources: list[str] | None = None, use
         "decisions": counts,
         "errors": errors[:20],
         "claude_used": claude_ok,
+        "claude_limit": limit.as_dict() if limit else None,
     }
     progress(f"Done — {counts.get('apply', 0)} matches, {counts.get('review', 0)} to review", 1.0)
     return summary

@@ -241,6 +241,8 @@ ul.reasons li { margin: 3px 0; }
 
 /* ---------- task panel & toasts */
 .taskpanel { position: fixed; right: 20px; bottom: 20px; width: 380px; z-index: 30; padding: 14px 16px; }
+.limitnote { background: var(--warn-soft); color: var(--ink); border-radius: 8px; padding: 8px 10px; margin: 6px 0 8px; font-size: 12.5px; display: flex; flex-direction: column; gap: 2px; }
+.limitnote b:first-child { color: var(--warn); }
 .progress { height: 6px; background: var(--surface-2); border-radius: 99px; overflow: hidden; margin: 10px 0; }
 .progress > div { height: 100%; background: var(--primary); border-radius: 99px; transition: width .3s; }
 .progress.indet > div { width: 30% !important; animation: indet 1.2s ease-in-out infinite; }

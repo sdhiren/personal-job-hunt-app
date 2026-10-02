@@ -13,9 +13,11 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
+from datetime import datetime
 
 from .config import DATA_DIR, settings
 
@@ -28,6 +30,40 @@ class ClaudeError(RuntimeError):
 
 class ClaudeNotConfigured(ClaudeError):
     pass
+
+
+class ClaudeUsageLimit(ClaudeError):
+    """The plan's or API account's limit is used up: further calls fail until `resets`."""
+
+    def __init__(self, reason: str, resets: str | None = None):
+        super().__init__(f"{reason} · resets {resets}" if resets else reason)
+        self.reason = reason
+        self.resets = resets
+
+    def as_dict(self) -> dict:
+        return {"reason": self.reason, "resets": self.resets}
+
+
+_LIMIT_RE = re.compile(
+    r"hit your (?:[\w-]+ )?limit|usage limit|out of extra usage|credit balance (?:is )?too low|rate.?limit", re.I
+)
+_RESETS_RE = re.compile(r"resets?\s+(?:at\s+)?(.+)", re.I)
+_EPOCH_RE = re.compile(r"\|(\d{10})\b")
+
+
+def usage_limit_from(message: str) -> ClaudeUsageLimit | None:
+    """Recognise Claude Code's limit messages, e.g.
+    "You've hit your session limit · resets 5:10pm (Asia/Calcutta)" or "Claude AI usage limit reached|1759411200"."""
+    message = message.strip()
+    if not _LIMIT_RE.search(message):
+        return None
+    epoch = _EPOCH_RE.search(message)
+    if epoch:
+        resets = datetime.fromtimestamp(int(epoch.group(1))).strftime("%-I:%M%p on %d %b").replace("AM", "am")
+        return ClaudeUsageLimit(message[: epoch.start()].strip(), resets.replace("PM", "pm"))
+    reason, sep, rest = message.partition("·")
+    resets = _RESETS_RE.search(rest if sep else message)
+    return ClaudeUsageLimit((reason if sep else message).strip(" ."), resets.group(1).strip() if resets else None)
 
 
 # ---------------------------------------------------------------- Claude account (Claude Code CLI)
@@ -138,9 +174,11 @@ class AccountBackend:
         try:
             data = json.loads(proc.stdout)
         except json.JSONDecodeError as e:
-            raise ClaudeError((proc.stderr or proc.stdout or "no output from claude")[:500]) from e
+            message = (proc.stderr or proc.stdout or "no output from claude")[:500]
+            raise usage_limit_from(message) or ClaudeError(message) from e
         if data.get("is_error") or data.get("structured_output") is None:
-            raise ClaudeError(str(data.get("result") or data.get("subtype") or "Claude Code returned an error")[:500])
+            message = str(data.get("result") or data.get("subtype") or "Claude Code returned an error")[:500]
+            raise usage_limit_from(message) or ClaudeError(message)
         return data["structured_output"]
 
 
@@ -159,8 +197,23 @@ class ApiBackend:
         self.model = model or "claude-opus-5"
 
     def structured(self, prompt: str, schema: dict, system: str, web: bool = False, timeout: int = 420) -> dict:
-        if web:
-            return self._structured_with_search(prompt, schema, system)
+        import anthropic
+
+        try:
+            if web:
+                return self._structured_with_search(prompt, schema, system)
+            return self._structured(prompt, schema, system)
+        except anthropic.RateLimitError as e:  # still limited after the SDK's own retries
+            retry_after = e.response.headers.get("retry-after")
+            raise ClaudeUsageLimit(
+                "Anthropic API rate limit reached", f"in about {retry_after}s" if retry_after else None
+            ) from e
+        except anthropic.BadRequestError as e:
+            if "credit balance" in str(e).lower():
+                raise ClaudeUsageLimit("Anthropic API credit balance is too low") from e
+            raise
+
+    def _structured(self, prompt: str, schema: dict, system: str) -> dict:
         resp = self.client.messages.create(
             model=self.model,
             max_tokens=16000,

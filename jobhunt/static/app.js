@@ -724,6 +724,9 @@ async function pollTask() {
         ${done ? `<button class="btn ghost sm" id="tclose" aria-label="close">${svg("x", 14)}</button>` : `<span class="spin"></span>`}</div>
       <div class="progress ${!done && t.progress < 0.02 ? "indet" : ""}"><div style="width:${Math.round(t.progress * 100)}%"></div></div>
       ${t.error ? `<div style="color:var(--bad)" class="small">${esc(t.error)}</div>` : ""}
+      ${t.result && t.result.claude_limit ? `<div class="limitnote" role="status"><b>Claude usage limit reached</b>
+        <div>${esc(t.result.claude_limit.reason)}${t.result.claude_limit.resets ? ` · resets <b>${esc(t.result.claude_limit.resets)}</b>` : ""}</div>
+        <div class="muted">Claude stopped for this search. Unscored jobs keep their keyword score and get Claude-scored on your next search after the reset.</div></div>` : ""}
       ${t.result && t.result.decisions ? `<div class="small"><b>${t.result.decisions.apply || 0}</b> matches · ${t.result.decisions.review || 0} to review${t.result.new != null ? ` · ${t.result.new} new jobs` : ""}${t.result.claude_scored ? ` · ${t.result.claude_scored} scored by Claude` : ""}</div>
         ${(t.result.errors || []).length ? `<details class="small muted"><summary>${t.result.errors.length} source warnings</summary>${t.result.errors.map(esc).join("<br>")}</details>` : ""}` : ""}
       <div class="tasklog">${t.log.slice().reverse().map(l => `<div><span class="muted">${l.t}</span> ${esc(l.msg)}</div>`).join("")}</div>
