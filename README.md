@@ -14,7 +14,7 @@ make run        # or run the app natively (PostgreSQL still runs in Docker)
 | **Dashboard** | Your profile at a glance (details, pay, notice period, target titles, skills), job counts, the application pipeline, matches by region, top matches and recent activity. |
 | **Jobs** | Matches, Needs review and Filtered out tabs, with search, region and WFH filters. Each job shows its score, WFH, visa and rating. Click a job for the reasons behind its score, Claude's strengths/gaps, and the description. Apply singly or select several jobs to apply in bulk. |
 | **Applications** | A Kanban board (To do → Applied → Screening → Interviewing → Offer → Closed). Drag cards to change status, open a card for its history and notes, and export to CSV. |
-| **My profile** | Upload a resume (PDF, DOCX or TXT). **Fill profile from resume** has Claude extract your details, target titles and weighted skills. You can edit everything: salary (current, expected, currency), notice period, visa and relocation, regions, preferred cities, matching thresholds and apply mode. Saving re-scores all stored jobs. |
+| **My profile** | Upload a resume (PDF, DOCX or TXT). **Fill profile from resume** has Claude extract your details, target titles and weighted skills. You can edit everything: salary (current, expected, currency), notice period, visa and relocation, regions, preferred cities, matching thresholds and apply mode. After saving, you're asked whether to run a job search now, which also re-scores your saved jobs. |
 | **Settings** | Connect Claude, choose what Claude does, and pick job sources. |
 
 ## Connecting Claude

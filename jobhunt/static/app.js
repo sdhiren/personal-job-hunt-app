@@ -103,6 +103,30 @@ function renderNav() {
 }
 const rerender = () => { const n = (location.hash.replace(/^#\//, "") || "dashboard"); renderPage(ROUTES[n] || ROUTES.dashboard); };
 
+// ------------------------------------------------------------------ confirm dialog
+// Resolves true for the main button, false for the other button, Esc or a click outside.
+function confirmDialog({ title, body, ok = "OK", cancel = "Cancel" }) {
+  return new Promise(resolve => {
+    const root = document.createElement("div");
+    root.innerHTML = `<div class="scrim"></div>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mtitle">
+        <h3 id="mtitle">${esc(title)}</h3>
+        <p class="muted">${esc(body)}</p>
+        <div class="row" style="justify-content:flex-end">
+          <button class="btn" data-answer="no">${esc(cancel)}</button>
+          <button class="btn primary" data-answer="yes">${esc(ok)}</button>
+        </div>
+      </div>`;
+    const close = answer => { root.remove(); document.removeEventListener("keydown", onKey); resolve(answer); };
+    const onKey = e => { if (e.key === "Escape") close(false); };
+    $(".scrim", root).onclick = () => close(false);
+    $$("[data-answer]", root).forEach(b => (b.onclick = () => close(b.dataset.answer === "yes")));
+    document.addEventListener("keydown", onKey);
+    document.body.append(root);
+    $("[data-answer=yes]", root).focus();
+  });
+}
+
 // ------------------------------------------------------------------ tooltip for charts
 document.addEventListener("mousemove", e => {
   const t = e.target.closest("[data-tip]"), tip = $("#tip");
@@ -568,9 +592,15 @@ async function renderProfile(el) {
     setPath(out, "matching.skills", skills.map(s => ({ name: s.name, weight: s.weight, ...(s.pattern ? { pattern: s.pattern } : { aliases: s.aliases || [] }) })));
     setPath(out, "apply.mode", ($("input[name=amode]:checked", el) || {}).value || "review");
     await api("/api/profile", { method: "PUT", body: out });
-    toast("Profile saved — re-matching your jobs", "ok");
-    pollTask();
     renderProfile(el);
+    const search = await confirmDialog({
+      title: "Profile saved",
+      body: "Run a job search now? It finds new jobs and re-scores all your saved jobs against the updated profile. " +
+        "Until then, saved jobs keep their current scores.",
+      ok: "Run job search",
+      cancel: "Not now",
+    });
+    if (search) startSearch();
   });
 }
 
@@ -690,30 +720,30 @@ async function pollTask() {
     const done = !t.running;
     panel.hidden = false;
     panel.innerHTML = `
-      <div class="row" style="flex-wrap:nowrap"><b style="flex:1">${t.kind === "rematch" ? "Re-matching jobs" : "Finding jobs"}${done ? (t.error ? " — failed" : " — done") : "…"}</b>
+      <div class="row" style="flex-wrap:nowrap"><b style="flex:1">Finding jobs${done ? (t.error ? " — failed" : " — done") : "…"}</b>
         ${done ? `<button class="btn ghost sm" id="tclose" aria-label="close">${svg("x", 14)}</button>` : `<span class="spin"></span>`}</div>
       <div class="progress ${!done && t.progress < 0.02 ? "indet" : ""}"><div style="width:${Math.round(t.progress * 100)}%"></div></div>
       ${t.error ? `<div style="color:var(--bad)" class="small">${esc(t.error)}</div>` : ""}
       ${t.result && t.result.decisions ? `<div class="small"><b>${t.result.decisions.apply || 0}</b> matches · ${t.result.decisions.review || 0} to review${t.result.new != null ? ` · ${t.result.new} new jobs` : ""}${t.result.claude_scored ? ` · ${t.result.claude_scored} scored by Claude` : ""}</div>
         ${(t.result.errors || []).length ? `<details class="small muted"><summary>${t.result.errors.length} source warnings</summary>${t.result.errors.map(esc).join("<br>")}</details>` : ""}` : ""}
       <div class="tasklog">${t.log.slice().reverse().map(l => `<div><span class="muted">${l.t}</span> ${esc(l.msg)}</div>`).join("")}</div>
-      ${done && !t.error && t.kind !== "rematch" ? `<a class="btn sm primary" href="#/jobs" style="margin-top:8px" id="tsee">See matches</a>` : ""}`;
+      ${done && !t.error ? `<a class="btn sm primary" href="#/jobs" style="margin-top:8px" id="tsee">See matches</a>` : ""}`;
     const dismiss = () => { panel.hidden = true; panel.dataset.dismissed = "1"; };
     $("#tclose") && ($("#tclose").onclick = dismiss);
     $("#tsee") && ($("#tsee").onclick = dismiss);
     if (done && !panel.dataset.finished) {
       panel.dataset.finished = "1"; rerender();
-      if (t.kind === "rematch") setTimeout(dismiss, 4000);
     }
   }
   taskTimer = setTimeout(pollTask, t.running ? 1500 : 6000);
 }
-$("#findbtn").onclick = async () => {
+async function startSearch() {
   try {
     await api("/api/search", { method: "POST", body: {} });
     pollTask();
   } catch (e) { toast(e.message, "err"); }
-};
+}
+$("#findbtn").onclick = startSearch;
 
 let applyTimer = null;
 async function pollApply() {

@@ -198,6 +198,12 @@ input[type=checkbox], input[type=radio] { accent-color: var(--primary); }
   box-shadow: -10px 0 40px rgba(21, 38, 28, .15); display: flex; flex-direction: column; animation: slide .18s ease;
 }
 @keyframes slide { from { transform: translateX(30px); opacity: .4; } }
+.modal {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 21; width: min(440px, calc(100vw - 32px));
+  background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px 22px;
+}
+.modal h3 { margin: 0 0 8px; }
+.modal p { margin: 0 0 18px; line-height: 1.5; }
 .drawer .dh { padding: 18px 22px; border-bottom: 1px solid var(--line); display: flex; gap: 12px; align-items: flex-start; }
 .drawer .db { padding: 18px 22px; overflow: auto; flex: 1; }
 .drawer .df { padding: 12px 22px; border-top: 1px solid var(--line); display: flex; gap: 8px; flex-wrap: wrap; background: var(--primary-ghost); }

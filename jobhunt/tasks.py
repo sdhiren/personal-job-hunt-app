@@ -27,38 +27,26 @@ class SearchTask:
             if pct is not None:
                 self.state["progress"] = pct
 
-    def start(self, kind: str = "search", **kwargs) -> bool:
+    def start(self, **kwargs) -> bool:
         with self.lock:
             if self.state["running"]:
                 return False
             self.state = {
                 "running": True,
-                "kind": kind,
                 "progress": 0.0,
                 "log": [],
                 "result": None,
                 "error": None,
                 "started": time.time(),
             }
-        kwargs["kind"] = kind
         threading.Thread(target=self._run, kwargs=kwargs, daemon=True).start()
         return True
 
-    def _run(self, kind: str, **kwargs):
-        from .services import evaluate_all, run_search
+    def _run(self, **kwargs):
+        from .services import run_search
 
         try:
-            if kind == "rematch":
-                with db.connect() as conn:
-                    evaluate_all(conn, self._progress)
-                    result = {
-                        "decisions": dict(
-                            conn.execute("SELECT decision, COUNT(*) FROM jobs GROUP BY decision").fetchall()
-                        )
-                    }
-                self._progress("Re-matched all jobs against your profile", 1.0)
-            else:
-                result = run_search(self._progress, **kwargs)
+            result = run_search(self._progress, **kwargs)
             with self.lock:
                 self.state["result"] = result
         except Exception as e:
