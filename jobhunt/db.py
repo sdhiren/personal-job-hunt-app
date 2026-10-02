@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import threading
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from functools import lru_cache
+from pathlib import Path
 
+from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict
 from psycopg_pool import ConnectionPool, PoolTimeout
 
@@ -27,6 +30,10 @@ APP_STATUSES = [
     "rejected",
     "withdrawn",
 ]
+# Applications that still need action, so their jobs stay in the job lists
+OPEN_STATUSES = ("queued", "needs_manual", "failed")
+# Free-form application fields that set_status() may write
+APPLICATION_FIELDS = ("cover_letter", "answers", "screenshot", "notes", "error")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -125,12 +132,29 @@ def _text(s: str | None) -> str | None:
     return s.replace("\x00", "") if s else s
 
 
+_JOB_COLUMNS = (
+    "id source company title location url apply_url description remote workplace posted_at "
+    "ats ats_slug external_id extra first_seen last_seen"
+).split()
+# On conflict everything except id and first_seen is refreshed. xmax = 0 only for a freshly inserted row.
+_UPSERT_JOB = sql.SQL(
+    "INSERT INTO jobs ({cols}) VALUES ({vals}) ON CONFLICT (id) DO UPDATE SET {sets} RETURNING (xmax = 0)::int"
+).format(
+    cols=sql.SQL(", ").join(map(sql.Identifier, _JOB_COLUMNS)),
+    vals=sql.SQL(", ").join(map(sql.Placeholder, _JOB_COLUMNS)),
+    sets=sql.SQL(", ").join(
+        sql.SQL("{c} = EXCLUDED.{c}").format(c=sql.Identifier(c)) for c in _JOB_COLUMNS if c not in ("id", "first_seen")
+    ),
+)
+
+
 def upsert_jobs(conn, jobs: list[Job]) -> tuple[int, int]:
+    """Insert new jobs and refresh known ones; returns (new, updated)."""
     new = 0
     ts = now()
     for j in jobs:
-        exists = conn.execute("SELECT 1 FROM jobs WHERE id=%s", (j.id,)).fetchone()
         row = dict(
+            id=j.id,
             source=j.source,
             company=_text(j.company),
             title=_text(j.title),
@@ -145,17 +169,10 @@ def upsert_jobs(conn, jobs: list[Job]) -> tuple[int, int]:
             ats_slug=j.ats_slug,
             external_id=j.external_id,
             extra=_text(json.dumps(j.extra)),
+            first_seen=ts,
             last_seen=ts,
         )
-        if exists:
-            sets = ", ".join(f"{k}=%({k})s" for k in row)
-            conn.execute(f"UPDATE jobs SET {sets} WHERE id=%(id)s", {**row, "id": j.id})
-        else:
-            new += 1
-            row.update(id=j.id, first_seen=ts)
-            cols = ", ".join(row)
-            vals = ", ".join(f"%({k})s" for k in row)
-            conn.execute(f"INSERT INTO jobs ({cols}) VALUES ({vals})", row)
+        new += conn.execute(_UPSERT_JOB, row).fetchone()[0]
     return new, len(jobs) - new
 
 
@@ -226,12 +243,12 @@ def set_status(conn, job_id: str, status: str, note: str = "", method: str | Non
         )
     if status == "applied":
         conn.execute("UPDATE applications SET applied_at=COALESCE(applied_at, %s) WHERE id=%s", (ts, app_id))
-    for k, v in fields.items():
-        if k in ("cover_letter", "answers", "screenshot", "notes", "error"):
-            conn.execute(
-                f"UPDATE applications SET {k}=%s WHERE id=%s",
-                (json.dumps(v) if isinstance(v, (dict, list)) else v, app_id),
-            )
+    values = {k: json.dumps(v) if isinstance(v, (dict, list)) else v for k, v in fields.items()}
+    if unknown := values.keys() - set(APPLICATION_FIELDS):
+        raise ValueError(f"unknown application fields: {sorted(unknown)}")
+    if values:
+        sets = sql.SQL(", ").join(sql.SQL("{} = %s").format(sql.Identifier(k)) for k in values)
+        conn.execute(sql.SQL("UPDATE applications SET {} WHERE id = %s").format(sets), (*values.values(), app_id))
     conn.execute(
         "INSERT INTO events (application_id, ts, status, note) VALUES (%s,%s,%s,%s)", (app_id, ts, status, note)
     )
@@ -241,3 +258,50 @@ def set_status(conn, job_id: str, status: str, note: str = "", method: str | Non
 def applied_today(conn) -> int:
     day = datetime.now(UTC).date().isoformat()
     return conn.execute("SELECT COUNT(*) FROM applications WHERE applied_at >= %s", (day,)).fetchone()[0]
+
+
+# ---------------------------------------------------------------- one-off import from the SQLite version
+
+IMPORT_TABLES = ("jobs", "applications", "events")  # parents before children (foreign keys)
+
+
+def _columns(conn, table: str) -> set[str]:
+    cur = conn.execute(sql.SQL("SELECT * FROM {} LIMIT 0").format(sql.Identifier(table)))
+    return {c.name for c in cur.description}
+
+
+def import_sqlite(conn, path) -> dict[str, int]:
+    """Copy rows from the old SQLite database; rows already present are skipped. Returns rows read per table.
+
+    Only columns that exist in both databases are copied, and identifiers are quoted by psycopg, so a
+    tampered SQLite file can't inject SQL through its column names.
+    """
+    src = sqlite3.connect(f"{Path(path).resolve().as_uri()}?mode=ro", uri=True)  # never modify the old file
+    try:
+        counts = {}
+        for table in IMPORT_TABLES:
+            src_cols = [r[0] for r in src.execute("SELECT name FROM pragma_table_info(?)", (table,))]
+            pg_cols = _columns(conn, table)
+            cols = [c for c in src_cols if c in pg_cols]  # names from our own schema, so safe to quote below
+            quoted = ", ".join(f'"{c}"' for c in cols)
+            rows = src.execute(f'SELECT {quoted} FROM "{table}"').fetchall() if cols else []
+            counts[table] = len(rows)
+            if not rows:
+                continue
+            insert = sql.SQL("INSERT INTO {t} ({cols}) VALUES ({vals}) ON CONFLICT DO NOTHING").format(
+                t=sql.Identifier(table),
+                cols=sql.SQL(", ").join(map(sql.Identifier, cols)),
+                vals=sql.SQL(", ").join(sql.Placeholder() * len(cols)),
+            )
+            with conn.cursor() as cur:
+                cur.executemany(insert, [tuple(_text(v) if isinstance(v, str) else v for v in r) for r in rows])
+            if "id" in cols and table != "jobs":  # move the identity past the copied ids
+                conn.execute(
+                    sql.SQL("SELECT setval(pg_get_serial_sequence(%s, 'id'), (SELECT MAX(id) FROM {}))").format(
+                        sql.Identifier(table)
+                    ),
+                    (table,),
+                )
+        return counts
+    finally:
+        src.close()

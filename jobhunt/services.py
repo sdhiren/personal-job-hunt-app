@@ -177,6 +177,32 @@ def mark_duplicates(conn) -> None:
         seen.add(key)
 
 
+# ---------------------------------------------------------------- applying
+
+ABROAD_REGIONS = ("europe", "canada", "australia")  # these need visa sponsorship
+
+
+def apply_job(conn, applier, row, ask=None):
+    """Fill one application with `applier` and record the outcome; returns the ApplyResult."""
+    job = db.row_to_job(row)
+    db.set_status(conn, job.id, "in_progress", method="assisted" if job.ats else "manual")
+    conn.commit()  # so the app shows it as in progress while the form is open
+    res = applier.apply(job, row["region"] in ABROAD_REGIONS, ask)
+    db.set_status(
+        conn,
+        job.id,
+        res.status,
+        note=res.note,
+        method="auto" if res.note == "auto-submitted" else ("assisted" if job.ats else "manual"),
+        answers=res.answers,
+        cover_letter=res.cover_letter,
+        screenshot=res.screenshot,
+        error=res.note if res.status == "failed" else None,
+    )
+    conn.commit()
+    return res
+
+
 # ---------------------------------------------------------------- full run
 
 

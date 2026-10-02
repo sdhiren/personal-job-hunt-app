@@ -226,7 +226,8 @@ def jobs(
         sql += " AND (j.title ILIKE %s OR j.company ILIKE %s OR j.location ILIKE %s)"
         args += [f"%{q}%"] * 3
     if hide_handled:
-        sql += " AND (a.status IS NULL OR a.status IN ('queued','needs_manual','failed'))"
+        sql += " AND (a.status IS NULL OR a.status = ANY(%s))"
+        args.append(list(db.OPEN_STATUSES))
     with db.connect() as conn:
         total = conn.execute(f"SELECT COUNT(*) FROM ({sql}) AS matched", args).fetchone()[0]
         rows = conn.execute(

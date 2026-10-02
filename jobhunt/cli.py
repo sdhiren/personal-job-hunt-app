@@ -4,13 +4,16 @@ import csv
 import json
 import logging
 import sys
+from pathlib import Path
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
 from . import db
-from .config import companies, profile
+from .config import DATA_DIR, SQLITE_PATH, companies, profile
+
+LAST_LIST = DATA_DIR / ".last_list.json"  # ids shown by the last `list`, so `show 3` etc. work
 
 app = typer.Typer(help="Scrape jobs, match them to your resume, apply, and track applications.", no_args_is_help=True)
 console = Console()
@@ -55,7 +58,7 @@ def evaluate_cmd():
 def list_jobs(
     decision: str = typer.Option("apply", "-d", help="apply | review | reject | all"),
     region: str | None = typer.Option(None, "-r"),
-    limit: int = typer.Option(40, "-n"),
+    limit: int = typer.Option(40, "-n", min=1),
     include_applied: bool = typer.Option(False, "--all-status", help="Include jobs already handled"),
 ):
     """Show matched jobs, best first."""
@@ -68,7 +71,8 @@ def list_jobs(
         q += " AND j.region=%s"
         args.append(region)
     if not include_applied:
-        q += " AND (a.status IS NULL OR a.status IN ('queued','needs_manual','failed'))"
+        q += " AND (a.status IS NULL OR a.status = ANY(%s))"
+        args.append(list(db.OPEN_STATUSES))
     q += " ORDER BY j.score DESC NULLS LAST, j.posted_at DESC NULLS LAST LIMIT %s"
     args.append(limit)
     with db.connect() as conn:
@@ -92,22 +96,17 @@ def list_jobs(
         )
     console.print(t)
     console.print(f"[dim]{len(rows)} shown. `jobhunt show <#|id>` for details.[/]")
-    _remember_listing([r["id"] for r in rows])
-
-
-def _remember_listing(ids: list[str]) -> None:
-    from .config import DATA_DIR
-
-    (DATA_DIR / ".last_list.json").write_text(json.dumps(ids))
+    LAST_LIST.write_text(json.dumps([r["id"] for r in rows]))
 
 
 def _resolve(ref: str) -> str:
-    from .config import DATA_DIR
-
-    if ref.isdigit():
-        ids = json.loads((DATA_DIR / ".last_list.json").read_text())
-        return ids[int(ref) - 1]
-    return ref
+    """A job id, or the row number from the last `list`."""
+    if not ref.isdigit():
+        return ref
+    ids = json.loads(LAST_LIST.read_text()) if LAST_LIST.exists() else []
+    if not 1 <= int(ref) <= len(ids):
+        raise typer.BadParameter(f"no row {ref} in the last `list` ({len(ids)} shown); run `jobhunt list` first")
+    return ids[int(ref) - 1]
 
 
 @app.command()
@@ -138,13 +137,14 @@ def show(ref: str):
 @app.command()
 def apply(
     ref: list[str] | None = typer.Argument(None, help="Specific jobs (# from list, or ids)"),
-    limit: int = typer.Option(5, "-n", help="How many top matches to process"),
+    limit: int = typer.Option(5, "-n", min=1, help="How many top matches to process"),
     mode: str | None = typer.Option(None, help="review | auto (default: profile.yaml)"),
     region: str | None = typer.Option(None, "-r"),
     llm: bool = typer.Option(None, help="Draft answers with Claude (default: Settings)"),
 ):
     """Open and fill application forms for your top matches, then record the outcome."""
     from .apply import Applier
+    from .services import apply_job
 
     cfg = profile()["apply"]
     with db.connect() as conn:
@@ -175,31 +175,17 @@ def apply(
         with Applier(mode=use_mode, use_llm=llm) as applier:
             for job_id in ids:
                 r = conn.execute("SELECT * FROM jobs WHERE id=%s", (job_id,)).fetchone()
-                job = db.row_to_job(r)
-                abroad = r["region"] in ("europe", "canada", "australia")
-                console.rule(f"{job.company} — {job.title} ({r['location']})")
-                db.set_status(conn, job_id, "in_progress", method="auto" if job.ats else "manual")
-                conn.commit()
-                res = applier.apply(job, abroad, ask)
-                method = "auto" if res.note == "auto-submitted" else ("assisted" if job.ats else "manual")
-                db.set_status(
-                    conn,
-                    job_id,
-                    res.status,
-                    note=res.note,
-                    method=method,
-                    answers=res.answers,
-                    cover_letter=res.cover_letter,
-                    screenshot=res.screenshot,
-                    error=res.note if res.status == "failed" else None,
-                )
-                conn.commit()
+                if not r:
+                    console.print(f"[yellow]skip[/] no job {job_id}")
+                    continue
+                console.rule(f"{r['company']} — {r['title']} ({r['location']})")
+                res = apply_job(conn, applier, r, ask)
                 color = {"applied": "green", "failed": "red"}.get(res.status, "yellow")
                 console.print(f"→ [{color}]{res.status}[/] {res.note}")
 
 
 @app.command()
-def track(status: str | None = typer.Option(None, "-s"), limit: int = typer.Option(100, "-n")):
+def track(status: str | None = typer.Option(None, "-s"), limit: int = typer.Option(100, "-n", min=1)):
     """Your application tracker."""
     q = "SELECT a.*, j.company, j.title, j.location, j.url, j.score FROM applications a JOIN jobs j ON j.id=a.job_id"
     args: list = []
@@ -257,7 +243,7 @@ def mark_applied(ref: str, note: str = typer.Option("", "--note", "-m")):
 
 
 @app.command()
-def export(path: str = "data/applications.csv"):
+def export(path: Path = typer.Option(DATA_DIR / "applications.csv", "--path", "-o")):
     """Export the tracker to CSV (opens in Excel/Sheets)."""
     with db.connect() as conn:
         rows = conn.execute(
@@ -301,37 +287,13 @@ def dashboard(port: int = 8765):
 
 
 @app.command("import-sqlite")
-def import_sqlite(path: str = typer.Argument(None, help="SQLite file (default: data/jobhunt.db)")):
+def import_sqlite(path: Path = typer.Argument(SQLITE_PATH, exists=True, dir_okay=False, help="Old SQLite database")):
     """Copy jobs, applications and history from the old SQLite database into PostgreSQL."""
-    import sqlite3
-    from pathlib import Path
-
-    from .config import SQLITE_PATH
-
-    file = Path(path) if path else SQLITE_PATH
-    if not file.exists():
-        raise typer.BadParameter(f"{file} not found")
-    src = sqlite3.connect(file)
-    src.row_factory = sqlite3.Row
     with db.connect() as conn:
-        for table in ("jobs", "applications", "events"):
-            rows = src.execute(f"SELECT * FROM {table}").fetchall()
-            if not rows:
-                continue
-            cols = rows[0].keys()
-            sql = (
-                f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({', '.join(['%s'] * len(cols))}) "
-                "ON CONFLICT DO NOTHING"
-            )
-            with conn.cursor() as cur:
-                cur.executemany(sql, [tuple(db._text(v) if isinstance(v, str) else v for v in r) for r in rows])
-            if table != "jobs":  # keep the id sequence ahead of the copied ids
-                conn.execute(
-                    f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), COALESCE(MAX(id), 1)) FROM {table}"
-                )
-            console.print(f"{table}: {len(rows)} rows read (rows already present are skipped)")
-    src.close()
-    console.print("[green]Imported.[/] The SQLite file was left untouched.")
+        counts = db.import_sqlite(conn, path)
+    for table, n in counts.items():
+        console.print(f"{table}: {n} rows read")
+    console.print("[green]Imported.[/] Rows that were already there were skipped; the SQLite file is unchanged.")
 
 
 @app.command("check-companies")
