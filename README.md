@@ -3,7 +3,8 @@
 A local job-search app. Upload your resume and it will **find jobs** (from company career boards and Claude web search), **match them to you**, **fill in applications**, and **track everything** on your computer.
 
 ```bash
-make run        # starts the app and opens http://127.0.0.1:8765
+make up         # everything in Docker: app at http://localhost:8765
+make run        # or run the app natively (PostgreSQL still runs in Docker)
 ```
 
 ## Pages
@@ -48,26 +49,64 @@ CAPTCHAs are never bypassed. The daily cap defaults to 15. LinkedIn, Naukri and 
 
 ## Setup
 
-Requires Python 3.11+, [uv](https://docs.astral.sh/uv/) and, for the Claude account option, [Claude Code](https://claude.com/claude-code).
+There are two ways to run it. Both store jobs and applications in PostgreSQL (in Docker) and keep your profile, resume and settings in `data/`, so you can switch between them.
+
+### Option 1: everything in Docker
+
+Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+
+```bash
+cp .env.example .env    # optional: change the database password or ports
+make up                 # build and start the app + PostgreSQL
+```
+
+- App: http://localhost:8765
+- Application browser: http://localhost:6080/vnc.html (or `make browser`). Chromium runs on a virtual display inside the container. When you click **Apply**, open this page to review the form and click Submit. The app links to it while applications are running.
+- Claude account (Pro/Max): run `make docker-claude-login` once. The sign-in is kept in a Docker volume. Alternatively, run `claude setup-token` on your computer and put the token in `.env` as `CLAUDE_CODE_OAUTH_TOKEN`. The API key option works as usual from **Settings**.
+- Commands: `make docker-search`, `docker-list`, `docker-apply`, `docker-track`, plus `make logs`, `make shell` and `make down`.
+
+### Option 2: run the app on your computer
+
+Requires Python 3.11+, [uv](https://docs.astral.sh/uv/), Docker (for PostgreSQL) and, for the Claude account option, [Claude Code](https://claude.com/claude-code).
 
 ```bash
 make install   # virtualenv, dependencies, Chromium for form filling
-make run       # start the app at http://127.0.0.1:8765
-make help      # every command (search, list, apply, track, lint, format…)
+make run       # starts PostgreSQL in Docker, then the app at http://127.0.0.1:8765
+make help      # every command (search, list, apply, track, database, Docker, lint…)
 ```
 
-Data is stored in SQLite under `data/`, so it survives restarts.
+To use a PostgreSQL you already run, set `DATABASE_URL` in `.env` (for example `postgresql://user:pass@localhost:5432/jobhunt`) and start the app with `PYTHONPATH=. .venv/bin/python -m jobhunt app`. The tables are created automatically on first start.
+
+### Moving from the SQLite version
+
+Earlier versions stored everything in `data/jobhunt.db`. Copy it into PostgreSQL once:
+
+```bash
+make import-sqlite          # or: make docker-import-sqlite
+```
+
+It can be run again safely, because rows that already exist are skipped. The SQLite file isn't changed or deleted.
+
+### Database commands
+
+| Command | What it does |
+|---|---|
+| `make db-up` / `make db-down` | Start or stop PostgreSQL. The data is kept in the `jobhunt_pgdata` Docker volume. |
+| `make db-shell` | Open `psql` on the database |
+| `make db-backup` | Write a dump to `data/backups/` |
+| `make db-restore FILE=…` | Restore a dump |
+
+All ports are published to `127.0.0.1` only, so nothing is reachable from your network.
 
 ## Your data
 
-Everything is stored locally in `data/`:
-
-| File | Contents |
+| Where | Contents |
 |---|---|
-| `jobhunt.db` | Jobs, applications and history (SQLite) |
-| `profile.yaml` | Your profile |
-| `settings.json` | Claude connection and sources |
-| `resume/` | Your resume |
-| `screenshots/` | Screenshots of each filled form |
+| PostgreSQL (`jobhunt_pgdata` volume) | Jobs, applications and history |
+| `data/profile.yaml` | Your profile |
+| `data/settings.json` | Claude connection and sources |
+| `data/resume/` | Your resume |
+| `data/screenshots/` | Screenshots of each filled form |
+| `data/backups/` | Database dumps from `make db-backup` |
 
-`config/` holds the shipped template and the company list.
+`config/` holds the shipped template and the company list. `make down` keeps all of this. Only `docker compose down -v` deletes the database volume.
