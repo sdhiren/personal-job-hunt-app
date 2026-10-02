@@ -1,4 +1,4 @@
-.PHONY: help install run search list apply track import-sqlite test \
+.PHONY: help install run search list apply track import-sqlite test todo reminder-install reminder-uninstall \
 	db-up db-down db-shell db-backup db-restore \
 	up down build restart logs shell browser docker-claude-login \
 	docker-search docker-list docker-apply docker-track docker-import-sqlite \
@@ -123,3 +123,12 @@ format:  ## Auto-format and fix lint issues
 clean:  ## Remove caches (keeps your data/ folder and the database)
 	find . -name __pycache__ -not -path './.venv/*' -exec rm -rf {} +
 	rm -rf .ruff_cache *.egg-info
+
+todo:  ## Show pending TODO items and the reminder status
+	@automation/reminder.sh status
+
+reminder-install:  ## Remind me (once a day, macOS) when TODO.md has no pending items
+	@automation/reminder.sh install
+
+reminder-uninstall:  ## Remove the TODO reminder
+	@automation/reminder.sh uninstall

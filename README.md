@@ -104,6 +104,32 @@ It can be run again safely, because rows that already exist are skipped. The SQL
 
 All ports are published to `127.0.0.1` only, so nothing is reachable from your network.
 
+## Daily automation
+
+Claude can work through a to-do list for you, one item a day:
+
+1. Add items to [`TODO.md`](TODO.md) under **Pending**. The file contains a template.
+2. Every day at about 1 PM, a scheduled Claude task picks one pending item, implements it on a branch, adds
+   tests, runs `make lint` and `make test`, opens a pull request, merges it when everything passes, and
+   records the PR in `TODO.md`. The full procedure is in
+   [`automation/todo-runner.md`](automation/todo-runner.md). If an item is unclear it asks you a question
+   (status `needs-info`). If it can't finish, it leaves a draft PR (status `blocked`). Either way you get a
+   macOS notification.
+3. When nothing is pending, `make reminder-install` gives you a notification at most once a day, after you
+   log in or wake your Mac, asking you to add items. This runs without Claude.
+
+One-time setup:
+
+```bash
+brew install gh && gh auth login   # lets Claude open and merge pull requests
+make reminder-install              # the daily "TODO list is empty" reminder
+make todo                          # check: pending items and reminder status
+```
+
+The 1 PM task is a scheduled task in the Claude desktop app. It runs while the app is open, and a missed run
+starts the next time the app opens. It uses your Claude plan and never runs job searches, Claude scoring or
+applications. The project rules it follows are in [`CLAUDE.md`](CLAUDE.md).
+
 ## Your data
 
 | Where | Contents |
