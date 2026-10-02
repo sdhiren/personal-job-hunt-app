@@ -62,14 +62,14 @@ def list_jobs(
     q = "SELECT j.*, a.status AS app_status FROM jobs j LEFT JOIN applications a ON a.job_id=j.id WHERE 1=1"
     args: list = []
     if decision != "all":
-        q += " AND j.decision=?"
+        q += " AND j.decision=%s"
         args.append(decision)
     if region:
-        q += " AND j.region=?"
+        q += " AND j.region=%s"
         args.append(region)
     if not include_applied:
         q += " AND (a.status IS NULL OR a.status IN ('queued','needs_manual','failed'))"
-    q += " ORDER BY j.score DESC, j.posted_at DESC LIMIT ?"
+    q += " ORDER BY j.score DESC NULLS LAST, j.posted_at DESC NULLS LAST LIMIT %s"
     args.append(limit)
     with db.connect() as conn:
         rows = conn.execute(q, args).fetchall()
@@ -115,8 +115,8 @@ def show(ref: str):
     """Show one job (number from the last `list`, or full job id)."""
     job_id = _resolve(ref)
     with db.connect() as conn:
-        r = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
-        app_row = conn.execute("SELECT * FROM applications WHERE job_id=?", (job_id,)).fetchone()
+        r = conn.execute("SELECT * FROM jobs WHERE id=%s", (job_id,)).fetchone()
+        app_row = conn.execute("SELECT * FROM applications WHERE job_id=%s", (job_id,)).fetchone()
     if not r:
         raise typer.BadParameter("no such job")
     console.rule(f"{r['company']} — {r['title']}")
@@ -157,9 +157,9 @@ def apply(
             )
             args: list = []
             if region:
-                q += " AND j.region=?"
+                q += " AND j.region=%s"
                 args.append(region)
-            ids = [r[0] for r in conn.execute(q + " ORDER BY j.score DESC LIMIT ?", (*args, limit))]
+            ids = [r[0] for r in conn.execute(q + " ORDER BY j.score DESC NULLS LAST LIMIT %s", (*args, limit))]
         if not ids:
             console.print("Nothing to apply to. Run [bold]jobhunt scrape[/] or check [bold]jobhunt list -d review[/].")
             return
@@ -174,7 +174,7 @@ def apply(
         ask = lambda msg: console.input(f"[cyan]{msg}[/] ")  # noqa: E731
         with Applier(mode=use_mode, use_llm=llm) as applier:
             for job_id in ids:
-                r = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+                r = conn.execute("SELECT * FROM jobs WHERE id=%s", (job_id,)).fetchone()
                 job = db.row_to_job(r)
                 abroad = r["region"] in ("europe", "canada", "australia")
                 console.rule(f"{job.company} — {job.title} ({r['location']})")
@@ -204,9 +204,9 @@ def track(status: str | None = typer.Option(None, "-s"), limit: int = typer.Opti
     q = "SELECT a.*, j.company, j.title, j.location, j.url, j.score FROM applications a JOIN jobs j ON j.id=a.job_id"
     args: list = []
     if status:
-        q += " WHERE a.status=?"
+        q += " WHERE a.status=%s"
         args.append(status)
-    q += " ORDER BY a.updated_at DESC LIMIT ?"
+    q += " ORDER BY a.updated_at DESC LIMIT %s"
     args.append(limit)
     with db.connect() as conn:
         rows = conn.execute(q, args).fetchall()
@@ -238,7 +238,7 @@ def status(
     """Update an application's status (e.g. after an interview call)."""
     with db.connect() as conn:
         if ref[:1] == "a" and ref[1:].isdigit():
-            row = conn.execute("SELECT job_id FROM applications WHERE id=?", (int(ref[1:]),)).fetchone()
+            row = conn.execute("SELECT job_id FROM applications WHERE id=%s", (int(ref[1:]),)).fetchone()
             if not row:
                 raise typer.BadParameter(f"no application {ref}")
             job_id = row["job_id"]
@@ -294,6 +294,40 @@ def run_app(port: int = 8765, open_browser: bool = typer.Option(True, "--open/--
 def dashboard(port: int = 8765):
     """Alias for `app`."""
     run_app(port=port, open_browser=True)
+
+
+@app.command("import-sqlite")
+def import_sqlite(path: str = typer.Argument(None, help="SQLite file (default: data/jobhunt.db)")):
+    """Copy jobs, applications and history from the old SQLite database into PostgreSQL."""
+    import sqlite3
+    from pathlib import Path
+
+    from .config import SQLITE_PATH
+
+    file = Path(path) if path else SQLITE_PATH
+    if not file.exists():
+        raise typer.BadParameter(f"{file} not found")
+    src = sqlite3.connect(file)
+    src.row_factory = sqlite3.Row
+    with db.connect() as conn:
+        for table in ("jobs", "applications", "events"):
+            rows = src.execute(f"SELECT * FROM {table}").fetchall()
+            if not rows:
+                continue
+            cols = rows[0].keys()
+            sql = (
+                f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({', '.join(['%s'] * len(cols))}) "
+                "ON CONFLICT DO NOTHING"
+            )
+            with conn.cursor() as cur:
+                cur.executemany(sql, [tuple(db._text(v) if isinstance(v, str) else v for v in r) for r in rows])
+            if table != "jobs":  # keep the id sequence ahead of the copied ids
+                conn.execute(
+                    f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), COALESCE(MAX(id), 1)) FROM {table}"
+                )
+            console.print(f"{table}: {len(rows)} rows read (rows already present are skipped)")
+    src.close()
+    console.print("[green]Imported.[/] The SQLite file was left untouched.")
 
 
 @app.command("check-companies")

@@ -13,7 +13,8 @@ import yaml
 ROOT = Path(os.environ.get("JOBHUNT_HOME", Path(__file__).resolve().parent.parent))
 CONFIG_DIR = ROOT / "config"
 DATA_DIR = ROOT / "data"
-DB_PATH = DATA_DIR / "jobhunt.db"
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://jobhunt:jobhunt@localhost:5432/jobhunt")
+SQLITE_PATH = DATA_DIR / "jobhunt.db"  # the pre-Postgres store, kept for `jobhunt import-sqlite`
 SCREENSHOT_DIR = DATA_DIR / "screenshots"
 RESUME_DIR = DATA_DIR / "resume"
 BROWSER_PROFILE_DIR = DATA_DIR / "browser-profile"
