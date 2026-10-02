@@ -1,0 +1,106 @@
+# Default profile template. Your own profile is saved to data/profile.yaml by the app
+# (Profile page) and overrides these values. Upload a resume to fill skills automatically.
+
+candidate:
+  first_name: ''
+  last_name: ''
+  email: ''
+  phone: ''
+  city: ''
+  country: ''
+  linkedin: ''
+  github: ''
+  website: ''
+  current_company: ''
+  current_title: ''
+  notice_period: ''
+  current_ctc: ''
+  expected_ctc: ''
+  currency: INR
+  summary: ''
+  resume_path: ''
+  years_experience: 0
+  target_titles: []
+  requires_visa_sponsorship_abroad: true
+  willing_to_relocate: true
+  authorized_to_work_in_india: true
+search:
+  regions:
+  - india
+  - europe
+  - canada
+  - australia
+  india_preferred_cities:
+  - delhi
+  - new delhi
+  - gurugram
+  - gurgaon
+  - noida
+  - ghaziabad
+  - faridabad
+  - ncr
+  - bengaluru
+  - bangalore
+  - pune
+  title_include:
+  - engineer
+  - developer
+  - architect
+  - \btech(nical)? lead\b
+  - \bsre\b
+  - engineering manager
+  title_exclude:
+  - intern\b
+  - junior
+  - \bjr\.?\b
+  - graduate
+  - new grad
+  - associate
+  - apprentice
+  - \bi\b$
+  - \bii\b
+  - sales
+  - solutions? engineer
+  - support engineer
+  - customer
+  - field engineer
+  - value engineer
+  - recruit
+  - designer
+  - hardware
+  - mechanical
+  - electrical
+  - firmware
+  - embedded
+  - ios\b
+  - android
+  - mobile
+  - security analyst
+  - test engineer
+  - in test\b
+  - \bsdet\b
+  - \bqa\b
+  - consulting engineer
+  - data analyst
+  - \bmarketing\b
+  - director
+  - \bvp\b
+  - head of
+  max_age_days: 45
+matching:
+  min_score: 55
+  strong_match_score: 72
+  llm_prefilter_score: 45
+  skills: []
+company:
+  min_rating: 3.5
+  flexible_min_rating: 3.3
+  unknown_rating_policy: review
+visa:
+  accept:
+  - true
+  - likely
+apply:
+  mode: review
+  max_per_day: 15
+  headless: false

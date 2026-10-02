@@ -1,0 +1,13 @@
+# Personal data: profile, resume, settings (API keys), database, screenshots, browser session
+data/
+resume/
+*.pdf
+*.docx
+.env
+
+.venv/
+__pycache__/
+*.egg-info/
+.ruff_cache/
+.claude/
+.DS_Store

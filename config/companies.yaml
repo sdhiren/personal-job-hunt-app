@@ -1,0 +1,133 @@
+# Companies scraped directly from their public ATS job boards (Greenhouse / Lever / Ashby).
+#
+# rating:        APPROXIMATE Glassdoor rating (estimated, not live — Glassdoor has no public API
+#                and blocks scraping). Edit freely; verify on glassdoor.com before relying on it.
+# known_sponsor: company is known to sponsor work visas / relocate engineers to its
+#                Europe/Canada/Australia offices. Used only when a JD doesn't state it either way.
+#
+# Add a company: find its board slug, e.g. boards.greenhouse.io/<slug>, jobs.lever.co/<slug>,
+# jobs.ashbyhq.com/<slug>, then add a row. Run `jobhunt check-companies` to validate slugs.
+
+companies:
+  # --- Global product companies with India offices and/or sponsorship abroad ---
+  - {name: Stripe,          ats: greenhouse, slug: stripe,                        rating: 3.9, known_sponsor: true}
+  - {name: Databricks,      ats: greenhouse, slug: databricks,                    rating: 4.1, known_sponsor: true}
+  - {name: Cloudflare,      ats: greenhouse, slug: cloudflare,                    rating: 3.9, known_sponsor: true}
+  - {name: MongoDB,         ats: greenhouse, slug: mongodb,                       rating: 4.0, known_sponsor: true}
+  - {name: Datadog,         ats: greenhouse, slug: datadog,                       rating: 4.1, known_sponsor: true}
+  - {name: Elastic,         ats: greenhouse, slug: elastic,                       rating: 4.2, known_sponsor: false}
+  - {name: GitLab,          ats: greenhouse, slug: gitlab,                        rating: 4.0, known_sponsor: false}
+  - {name: Twilio,          ats: greenhouse, slug: twilio,                        rating: 3.8, known_sponsor: false}
+  - {name: Airbnb,          ats: greenhouse, slug: airbnb,                        rating: 4.2, known_sponsor: false}
+  - {name: Dropbox,         ats: greenhouse, slug: dropbox,                       rating: 4.0, known_sponsor: false}
+  - {name: Coinbase,        ats: greenhouse, slug: coinbase,                      rating: 3.8, known_sponsor: true}
+  - {name: Rubrik,          ats: greenhouse, slug: rubrik,                        rating: 4.0, known_sponsor: false}
+  - {name: Okta,            ats: greenhouse, slug: okta,                          rating: 3.8, known_sponsor: false}
+  - {name: Samsara,         ats: greenhouse, slug: samsara,                       rating: 4.1, known_sponsor: false}
+  - {name: Zscaler,         ats: greenhouse, slug: zscaler,                       rating: 4.1, known_sponsor: false}
+  - {name: New Relic,       ats: greenhouse, slug: newrelic,                      rating: 3.8, known_sponsor: false}
+  - {name: PagerDuty,       ats: greenhouse, slug: pagerduty,                     rating: 3.9, known_sponsor: false}
+  - {name: Grafana Labs,    ats: greenhouse, slug: grafanalabs,                   rating: 4.4, known_sponsor: false}
+  - {name: Vercel,          ats: greenhouse, slug: vercel,                        rating: 4.0, known_sponsor: false}
+  - {name: Cockroach Labs,  ats: greenhouse, slug: cockroachlabs,                 rating: 4.3, known_sponsor: false}
+  - {name: Yugabyte,        ats: greenhouse, slug: yugabyte,                      rating: 4.2, known_sponsor: false}
+  - {name: Neo4j,           ats: greenhouse, slug: neo4j,                         rating: 4.0, known_sponsor: true}
+  - {name: Anthropic,       ats: greenhouse, slug: anthropic,                     rating: 4.5, known_sponsor: true}
+  - {name: Confluent,       ats: ashby,      slug: confluent,                     rating: 4.0, known_sponsor: false}
+  - {name: Temporal,        ats: ashby,      slug: temporal,                      rating: 4.3, known_sponsor: false}
+  - {name: Supabase,        ats: ashby,      slug: supabase,                      rating: 4.5, known_sponsor: false}
+  - {name: Sentry,          ats: ashby,      slug: sentry,                        rating: 4.0, known_sponsor: false}
+  - {name: Snyk,            ats: ashby,      slug: snyk,                          rating: 3.8, known_sponsor: true}
+  - {name: Redis,           ats: ashby,      slug: redis,                         rating: 4.0, known_sponsor: false}
+  - {name: OpenAI,          ats: ashby,      slug: openai,                        rating: 4.3, known_sponsor: true}
+  - {name: Cohere,          ats: ashby,      slug: cohere,                        rating: 4.0, known_sponsor: true}
+  - {name: Toptal,          ats: lever,      slug: toptal,                        rating: 3.8, known_sponsor: false}
+
+  # --- India-headquartered ---
+  - {name: Razorpay,        ats: greenhouse, slug: razorpaysoftwareprivatelimited, rating: 3.7, known_sponsor: false}
+  - {name: Groww,           ats: greenhouse, slug: groww,                         rating: 3.8, known_sponsor: false}
+  - {name: InMobi,          ats: greenhouse, slug: inmobi,                        rating: 3.6, known_sponsor: false}
+  - {name: Druva,           ats: greenhouse, slug: druva,                         rating: 3.9, known_sponsor: false}
+  - {name: HighRadius,      ats: greenhouse, slug: highradius,                    rating: 3.4, known_sponsor: false}
+  - {name: CRED,            ats: lever,      slug: cred,                          rating: 3.6, known_sponsor: false}
+  - {name: Zeta,            ats: lever,      slug: zeta,                          rating: 3.6, known_sponsor: false}
+  - {name: Mindtickle,      ats: lever,      slug: mindtickle,                    rating: 3.8, known_sponsor: false}
+  - {name: Meesho,          ats: lever,      slug: meesho,                        rating: 3.8, known_sponsor: false}
+  - {name: Paytm,           ats: lever,      slug: paytm,                         rating: 3.4, known_sponsor: false}
+
+  # --- Europe (known relocation / visa programs) ---
+  - {name: Adyen,           ats: greenhouse, slug: adyen,                         rating: 4.0, known_sponsor: true}
+  - {name: N26,             ats: greenhouse, slug: n26,                           rating: 3.4, known_sponsor: true}
+  - {name: Wise,            ats: greenhouse, slug: wise,                          rating: 3.9, known_sponsor: true}
+  - {name: GetYourGuide,    ats: greenhouse, slug: getyourguide,                  rating: 4.0, known_sponsor: true}
+  - {name: HelloFresh,      ats: greenhouse, slug: hellofresh,                    rating: 3.4, known_sponsor: true}
+  - {name: Celonis,         ats: greenhouse, slug: celonis,                       rating: 3.8, known_sponsor: true}
+  - {name: Intercom,        ats: greenhouse, slug: intercom,                      rating: 4.1, known_sponsor: true}
+  - {name: Contentful,      ats: greenhouse, slug: contentful,                    rating: 3.6, known_sponsor: true}
+  - {name: Monzo,           ats: greenhouse, slug: monzo,                         rating: 3.7, known_sponsor: true}
+  - {name: GoCardless,      ats: greenhouse, slug: gocardless,                    rating: 3.9, known_sponsor: true}
+  - {name: Tide,            ats: greenhouse, slug: tide,                          rating: 3.7, known_sponsor: true}
+  - {name: Deliveroo,       ats: greenhouse, slug: deliveroo,                     rating: 3.7, known_sponsor: true}
+  - {name: trivago,         ats: greenhouse, slug: trivago,                       rating: 3.9, known_sponsor: true}
+  - {name: Wolt,            ats: greenhouse, slug: wolt,                          rating: 3.8, known_sponsor: true}
+  - {name: Miro,            ats: ashby,      slug: miro,                          rating: 4.1, known_sponsor: true}
+  - {name: Mollie,          ats: ashby,      slug: mollie,                        rating: 3.8, known_sponsor: true}
+  - {name: Pleo,            ats: ashby,      slug: pleo,                          rating: 3.7, known_sponsor: true}
+  - {name: DeepL,           ats: ashby,      slug: deepl,                         rating: 4.0, known_sponsor: true}
+  - {name: Synthesia,       ats: ashby,      slug: synthesia,                     rating: 4.0, known_sponsor: true}
+  - {name: ElevenLabs,      ats: ashby,      slug: elevenlabs,                    rating: 4.2, known_sponsor: false}
+  - {name: Spotify,         ats: lever,      slug: spotify,                       rating: 4.2, known_sponsor: true}
+
+  # --- Canada ---
+  - {name: Wealthsimple,    ats: ashby,      slug: wealthsimple,                  rating: 4.1, known_sponsor: true}
+  - {name: 1Password,       ats: ashby,      slug: 1password,                     rating: 4.4, known_sponsor: false}
+  - {name: Faire,           ats: greenhouse, slug: faire,                         rating: 4.0, known_sponsor: true}
+
+  # --- Australia ---
+  - {name: Airwallex,       ats: ashby,      slug: airwallex,                     rating: 3.7, known_sponsor: true}
+  - {name: Culture Amp,     ats: greenhouse, slug: cultureamp,                    rating: 3.8, known_sponsor: true}
+  - {name: Xero,            ats: ashby,      slug: xero,                          rating: 4.0, known_sponsor: true}
+  - {name: Buildkite,       ats: greenhouse, slug: buildkite,                     rating: 4.3, known_sponsor: true}
+
+# Ratings for companies that only appear through aggregator sources (Arbeitnow, Remotive, Adzuna).
+# Keys are lower-case company names; substring match. Approximate — edit as needed.
+ratings:
+  thoughtworks: 3.9
+  atlassian: 4.2
+  microsoft: 4.2
+  google: 4.3
+  amazon: 3.7
+  salesforce: 4.1
+  adobe: 4.2
+  intuit: 4.3
+  servicenow: 4.2
+  sap: 4.1
+  oracle: 3.7
+  cisco: 4.1
+  vmware: 4.0
+  nutanix: 4.0
+  uber: 3.9
+  booking.com: 3.9
+  zalando: 3.7
+  delivery hero: 3.6
+  shopify: 3.8
+  canva: 4.3
+  freshworks: 3.8
+  postman: 4.0
+  browserstack: 3.8
+  swiggy: 3.8
+  zomato: 3.7
+  phonepe: 3.9
+  flipkart: 3.9
+  walmart: 3.9
+  publicis sapient: 3.6
+  epam: 3.8
+  globallogic: 3.8
+  infosys: 3.6
+  tcs: 3.6
+  wipro: 3.6
+  accenture: 3.8
+  capgemini: 3.7
+  hcl: 3.5
+  tech mahindra: 3.5
+  cognizant: 3.7
