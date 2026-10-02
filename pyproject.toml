@@ -16,6 +16,7 @@ dependencies = [
     "playwright>=1.45",
     "anthropic>=1.0",
     "python-multipart>=0.0.9",
+    "psycopg[binary,pool]>=3.2",
 ]
 
 [project.scripts]

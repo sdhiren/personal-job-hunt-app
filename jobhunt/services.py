@@ -138,8 +138,8 @@ def claude_score(conn, progress: Progress = _noop, limit: int = 40) -> int:
     hard_reject = ("title not a fit", "location out of scope", "posting too old", "JD says no", "duplicate")
     # Claude-discovered jobs only have a short summary, so keyword scores undersell them: always score those
     rows = conn.execute(
-        "SELECT * FROM jobs WHERE llm_json IS NULL AND ((decision IN ('apply','review') AND kw_score >= ?) "
-        "OR source='claude') ORDER BY source='claude' DESC, kw_score DESC",
+        "SELECT * FROM jobs WHERE llm_json IS NULL AND ((decision IN ('apply','review') AND kw_score >= %s) "
+        "OR source='claude') ORDER BY source='claude' DESC, kw_score DESC NULLS LAST",
         (prefilter,),
     ).fetchall()
     rows = [r for r in rows if not json.loads(r["reasons"] or '[""]')[0].startswith(hard_reject)][:limit]
@@ -166,15 +166,41 @@ def mark_duplicates(conn) -> None:
     """Same company + title + region posted several times (multi-city reposts): keep the best one."""
     rows = conn.execute(
         "SELECT id, company, title, region, reasons FROM jobs WHERE decision IN ('apply','review') "
-        "ORDER BY score DESC, posted_at DESC"
+        "ORDER BY score DESC NULLS LAST, posted_at DESC NULLS LAST"
     ).fetchall()
     seen = set()
     for r in rows:
         key = (r["company"].lower().strip(), " ".join(r["title"].lower().split()), r["region"])
         if key in seen:
             reasons = ["duplicate posting", *json.loads(r["reasons"] or "[]")]
-            conn.execute("UPDATE jobs SET decision='reject', reasons=? WHERE id=?", (json.dumps(reasons), r["id"]))
+            conn.execute("UPDATE jobs SET decision='reject', reasons=%s WHERE id=%s", (json.dumps(reasons), r["id"]))
         seen.add(key)
+
+
+# ---------------------------------------------------------------- applying
+
+ABROAD_REGIONS = ("europe", "canada", "australia")  # these need visa sponsorship
+
+
+def apply_job(conn, applier, row, ask=None):
+    """Fill one application with `applier` and record the outcome; returns the ApplyResult."""
+    job = db.row_to_job(row)
+    db.set_status(conn, job.id, "in_progress", method="assisted" if job.ats else "manual")
+    conn.commit()  # so the app shows it as in progress while the form is open
+    res = applier.apply(job, row["region"] in ABROAD_REGIONS, ask)
+    db.set_status(
+        conn,
+        job.id,
+        res.status,
+        note=res.note,
+        method="auto" if res.note == "auto-submitted" else ("assisted" if job.ats else "manual"),
+        answers=res.answers,
+        cover_letter=res.cover_letter,
+        screenshot=res.screenshot,
+        error=res.note if res.status == "failed" else None,
+    )
+    conn.commit()
+    return res
 
 
 # ---------------------------------------------------------------- full run

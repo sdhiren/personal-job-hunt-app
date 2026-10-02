@@ -1,0 +1,14 @@
+# Personal data stays out of the image; it is mounted at runtime
+data/
+resume/
+*.pdf
+*.docx
+.env
+
+.git/
+.venv/
+__pycache__/
+*.egg-info/
+.ruff_cache/
+.claude/
+.DS_Store

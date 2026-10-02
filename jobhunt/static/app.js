@@ -197,7 +197,8 @@ function bindJobActions(el) {
 async function queueApply(ids) {
   try {
     const r = await api("/api/apply", { method: "POST", body: { job_ids: ids } });
-    toast(`${r.added} application${r.added === 1 ? "" : "s"} queued — a browser window will open. Review each form and click Submit.`, "ok");
+    const where = r.browser_view ? `the browser opens at ${r.browser_view}` : "a browser window will open";
+    toast(`${r.added} application${r.added === 1 ? "" : "s"} queued — ${where}. Review each form and click Submit.`, "ok");
     pollApply();
     state.selected.clear();
     rerender();
@@ -714,7 +715,7 @@ async function pollApply() {
   if (a.current || a.pending.length) {
     ind.hidden = false;
     ind.className = "pill warn";
-    ind.innerHTML = `<span class="spin"></span> ${a.current ? `Filling: ${esc(a.current.company)}` : "Starting browser…"}${a.pending.length ? ` · ${a.pending.length} queued` : ""}`;
+    ind.innerHTML = `<span class="spin"></span> ${a.current ? `Filling: ${esc(a.current.company)}` : "Starting browser…"}${a.pending.length ? ` · ${a.pending.length} queued` : ""}${a.browser_view ? ` · <a href="${esc(a.browser_view)}" target="jobhunt-browser">open browser</a>` : ""}`;
     applyTimer = setTimeout(pollApply, 2000);
   } else if (!ind.hidden) {
     ind.hidden = true; toast("Application queue finished — check the Applications board", "ok"); rerender();

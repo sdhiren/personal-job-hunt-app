@@ -3,6 +3,7 @@ a single browser window."""
 
 from __future__ import annotations
 
+import os
 import queue
 import threading
 import time
@@ -81,7 +82,12 @@ class ApplyQueue:
 
     def snapshot(self) -> dict:
         with self.lock:
-            return {"current": self.current, "pending": list(self.pending)}
+            return {
+                "current": self.current,
+                "pending": list(self.pending),
+                # in Docker the browser runs on a virtual display you open in a tab (noVNC)
+                "browser_view": os.environ.get("JOBHUNT_BROWSER_VIEW_URL") or None,
+            }
 
     def add(self, job_ids: list[str]) -> int:
         from .config import profile
@@ -106,6 +112,7 @@ class ApplyQueue:
 
     def _worker(self):
         from .apply import Applier
+        from .services import apply_job
 
         with Applier(review_timeout=600) as applier:
             while True:
@@ -113,29 +120,20 @@ class ApplyQueue:
                     jid = self.q.get(timeout=5)
                 except queue.Empty:
                     break
+                with self.lock:
+                    self.pending = [p for p in self.pending if p != jid]
                 with db.connect() as conn:
-                    r = conn.execute("SELECT * FROM jobs WHERE id=?", (jid,)).fetchone()
+                    r = conn.execute("SELECT * FROM jobs WHERE id=%s", (jid,)).fetchone()
                     if not r:
                         continue
-                    job = db.row_to_job(r)
                     with self.lock:
-                        self.pending = [p for p in self.pending if p != jid]
-                        self.current = {"job_id": jid, "company": job.company, "title": job.title, "since": time.time()}
-                    db.set_status(conn, jid, "in_progress", method="assisted" if job.ats else "manual")
-                    conn.commit()
-                    res = applier.apply(job, r["region"] in ("europe", "canada", "australia"), ask=None)
-                    method = "auto" if res.note == "auto-submitted" else ("assisted" if job.ats else "manual")
-                    db.set_status(
-                        conn,
-                        jid,
-                        res.status,
-                        note=res.note,
-                        method=method,
-                        answers=res.answers,
-                        cover_letter=res.cover_letter,
-                        screenshot=res.screenshot,
-                        error=res.note if res.status == "failed" else None,
-                    )
+                        self.current = {
+                            "job_id": jid,
+                            "company": r["company"],
+                            "title": r["title"],
+                            "since": time.time(),
+                        }
+                    apply_job(conn, applier, r)
                 with self.lock:
                     self.current = None
 

@@ -1,4 +1,4 @@
-"""Local app server (127.0.0.1 only): JSON API + the single-page UI in ./static."""
+"""Local app server (127.0.0.1, or published to localhost only by Docker): JSON API + the UI in ./static."""
 
 from __future__ import annotations
 
@@ -215,22 +215,24 @@ def jobs(
     )
     args: list = []
     if decision != "all":
-        sql += " AND j.decision=?"
+        sql += " AND j.decision=%s"
         args.append(decision)
     if region:
-        sql += " AND j.region=?"
+        sql += " AND j.region=%s"
         args.append(region)
     if wfh:
         sql += " AND j.is_wfh=1"
     if q:
-        sql += " AND (j.title LIKE ? OR j.company LIKE ? OR j.location LIKE ?)"
+        sql += " AND (j.title ILIKE %s OR j.company ILIKE %s OR j.location ILIKE %s)"
         args += [f"%{q}%"] * 3
     if hide_handled:
-        sql += " AND (a.status IS NULL OR a.status IN ('queued','needs_manual','failed'))"
+        sql += " AND (a.status IS NULL OR a.status = ANY(%s))"
+        args.append(list(db.OPEN_STATUSES))
     with db.connect() as conn:
-        total = conn.execute(f"SELECT COUNT(*) FROM ({sql})", args).fetchone()[0]
+        total = conn.execute(f"SELECT COUNT(*) FROM ({sql}) AS matched", args).fetchone()[0]
         rows = conn.execute(
-            sql + " ORDER BY j.score DESC, j.posted_at DESC LIMIT ? OFFSET ?", (*args, limit, offset)
+            sql + " ORDER BY j.score DESC NULLS LAST, j.posted_at DESC NULLS LAST LIMIT %s OFFSET %s",
+            (*args, limit, offset),
         ).fetchall()
     return {"total": total, "jobs": [{**dict(r), "reasons": json.loads(r["reasons"] or "[]")} for r in rows]}
 
@@ -238,15 +240,15 @@ def jobs(
 @api.get("/api/job")
 def job_detail(id: str):
     with db.connect() as conn:
-        r = conn.execute("SELECT * FROM jobs WHERE id=?", (id,)).fetchone()
+        r = conn.execute("SELECT * FROM jobs WHERE id=%s", (id,)).fetchone()
         if not r:
             raise HTTPException(404)
-        app_row = conn.execute("SELECT * FROM applications WHERE job_id=?", (id,)).fetchone()
+        app_row = conn.execute("SELECT * FROM applications WHERE job_id=%s", (id,)).fetchone()
         events = (
             [
                 dict(e)
                 for e in conn.execute(
-                    "SELECT ts, status, note FROM events WHERE application_id=? ORDER BY id DESC", (app_row["id"],)
+                    "SELECT ts, status, note FROM events WHERE application_id=%s ORDER BY id DESC", (app_row["id"],)
                 )
             ]
             if app_row
@@ -270,7 +272,7 @@ def job_score(body: dict):
     from .services import _eval
 
     with db.connect() as conn:
-        r = conn.execute("SELECT * FROM jobs WHERE id=?", (body.get("id"),)).fetchone()
+        r = conn.execute("SELECT * FROM jobs WHERE id=%s", (body.get("id"),)).fetchone()
         if not r:
             raise HTTPException(404)
         job = db.row_to_job(r)
@@ -382,6 +384,8 @@ def export_csv():
 @api.get("/api/screenshot")
 def screenshot(path: str):
     p = Path(path).resolve()
+    if not p.exists():  # recorded on the other side of Docker: same file, different mount point
+        p = (SCREENSHOT_DIR / Path(path).name).resolve()
     if SCREENSHOT_DIR.resolve() not in p.parents or not p.exists():
         raise HTTPException(404)
     return FileResponse(p)

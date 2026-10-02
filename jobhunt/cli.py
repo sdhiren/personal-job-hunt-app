@@ -4,13 +4,16 @@ import csv
 import json
 import logging
 import sys
+from pathlib import Path
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
 from . import db
-from .config import companies, profile
+from .config import DATA_DIR, SQLITE_PATH, companies, profile
+
+LAST_LIST = DATA_DIR / ".last_list.json"  # ids shown by the last `list`, so `show 3` etc. work
 
 app = typer.Typer(help="Scrape jobs, match them to your resume, apply, and track applications.", no_args_is_help=True)
 console = Console()
@@ -55,21 +58,22 @@ def evaluate_cmd():
 def list_jobs(
     decision: str = typer.Option("apply", "-d", help="apply | review | reject | all"),
     region: str | None = typer.Option(None, "-r"),
-    limit: int = typer.Option(40, "-n"),
+    limit: int = typer.Option(40, "-n", min=1),
     include_applied: bool = typer.Option(False, "--all-status", help="Include jobs already handled"),
 ):
     """Show matched jobs, best first."""
     q = "SELECT j.*, a.status AS app_status FROM jobs j LEFT JOIN applications a ON a.job_id=j.id WHERE 1=1"
     args: list = []
     if decision != "all":
-        q += " AND j.decision=?"
+        q += " AND j.decision=%s"
         args.append(decision)
     if region:
-        q += " AND j.region=?"
+        q += " AND j.region=%s"
         args.append(region)
     if not include_applied:
-        q += " AND (a.status IS NULL OR a.status IN ('queued','needs_manual','failed'))"
-    q += " ORDER BY j.score DESC, j.posted_at DESC LIMIT ?"
+        q += " AND (a.status IS NULL OR a.status = ANY(%s))"
+        args.append(list(db.OPEN_STATUSES))
+    q += " ORDER BY j.score DESC NULLS LAST, j.posted_at DESC NULLS LAST LIMIT %s"
     args.append(limit)
     with db.connect() as conn:
         rows = conn.execute(q, args).fetchall()
@@ -92,22 +96,17 @@ def list_jobs(
         )
     console.print(t)
     console.print(f"[dim]{len(rows)} shown. `jobhunt show <#|id>` for details.[/]")
-    _remember_listing([r["id"] for r in rows])
-
-
-def _remember_listing(ids: list[str]) -> None:
-    from .config import DATA_DIR
-
-    (DATA_DIR / ".last_list.json").write_text(json.dumps(ids))
+    LAST_LIST.write_text(json.dumps([r["id"] for r in rows]))
 
 
 def _resolve(ref: str) -> str:
-    from .config import DATA_DIR
-
-    if ref.isdigit():
-        ids = json.loads((DATA_DIR / ".last_list.json").read_text())
-        return ids[int(ref) - 1]
-    return ref
+    """A job id, or the row number from the last `list`."""
+    if not ref.isdigit():
+        return ref
+    ids = json.loads(LAST_LIST.read_text()) if LAST_LIST.exists() else []
+    if not 1 <= int(ref) <= len(ids):
+        raise typer.BadParameter(f"no row {ref} in the last `list` ({len(ids)} shown); run `jobhunt list` first")
+    return ids[int(ref) - 1]
 
 
 @app.command()
@@ -115,8 +114,8 @@ def show(ref: str):
     """Show one job (number from the last `list`, or full job id)."""
     job_id = _resolve(ref)
     with db.connect() as conn:
-        r = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
-        app_row = conn.execute("SELECT * FROM applications WHERE job_id=?", (job_id,)).fetchone()
+        r = conn.execute("SELECT * FROM jobs WHERE id=%s", (job_id,)).fetchone()
+        app_row = conn.execute("SELECT * FROM applications WHERE job_id=%s", (job_id,)).fetchone()
     if not r:
         raise typer.BadParameter("no such job")
     console.rule(f"{r['company']} — {r['title']}")
@@ -138,13 +137,14 @@ def show(ref: str):
 @app.command()
 def apply(
     ref: list[str] | None = typer.Argument(None, help="Specific jobs (# from list, or ids)"),
-    limit: int = typer.Option(5, "-n", help="How many top matches to process"),
+    limit: int = typer.Option(5, "-n", min=1, help="How many top matches to process"),
     mode: str | None = typer.Option(None, help="review | auto (default: profile.yaml)"),
     region: str | None = typer.Option(None, "-r"),
     llm: bool = typer.Option(None, help="Draft answers with Claude (default: Settings)"),
 ):
     """Open and fill application forms for your top matches, then record the outcome."""
     from .apply import Applier
+    from .services import apply_job
 
     cfg = profile()["apply"]
     with db.connect() as conn:
@@ -157,9 +157,9 @@ def apply(
             )
             args: list = []
             if region:
-                q += " AND j.region=?"
+                q += " AND j.region=%s"
                 args.append(region)
-            ids = [r[0] for r in conn.execute(q + " ORDER BY j.score DESC LIMIT ?", (*args, limit))]
+            ids = [r[0] for r in conn.execute(q + " ORDER BY j.score DESC NULLS LAST LIMIT %s", (*args, limit))]
         if not ids:
             console.print("Nothing to apply to. Run [bold]jobhunt scrape[/] or check [bold]jobhunt list -d review[/].")
             return
@@ -174,39 +174,25 @@ def apply(
         ask = lambda msg: console.input(f"[cyan]{msg}[/] ")  # noqa: E731
         with Applier(mode=use_mode, use_llm=llm) as applier:
             for job_id in ids:
-                r = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
-                job = db.row_to_job(r)
-                abroad = r["region"] in ("europe", "canada", "australia")
-                console.rule(f"{job.company} — {job.title} ({r['location']})")
-                db.set_status(conn, job_id, "in_progress", method="auto" if job.ats else "manual")
-                conn.commit()
-                res = applier.apply(job, abroad, ask)
-                method = "auto" if res.note == "auto-submitted" else ("assisted" if job.ats else "manual")
-                db.set_status(
-                    conn,
-                    job_id,
-                    res.status,
-                    note=res.note,
-                    method=method,
-                    answers=res.answers,
-                    cover_letter=res.cover_letter,
-                    screenshot=res.screenshot,
-                    error=res.note if res.status == "failed" else None,
-                )
-                conn.commit()
+                r = conn.execute("SELECT * FROM jobs WHERE id=%s", (job_id,)).fetchone()
+                if not r:
+                    console.print(f"[yellow]skip[/] no job {job_id}")
+                    continue
+                console.rule(f"{r['company']} — {r['title']} ({r['location']})")
+                res = apply_job(conn, applier, r, ask)
                 color = {"applied": "green", "failed": "red"}.get(res.status, "yellow")
                 console.print(f"→ [{color}]{res.status}[/] {res.note}")
 
 
 @app.command()
-def track(status: str | None = typer.Option(None, "-s"), limit: int = typer.Option(100, "-n")):
+def track(status: str | None = typer.Option(None, "-s"), limit: int = typer.Option(100, "-n", min=1)):
     """Your application tracker."""
     q = "SELECT a.*, j.company, j.title, j.location, j.url, j.score FROM applications a JOIN jobs j ON j.id=a.job_id"
     args: list = []
     if status:
-        q += " WHERE a.status=?"
+        q += " WHERE a.status=%s"
         args.append(status)
-    q += " ORDER BY a.updated_at DESC LIMIT ?"
+    q += " ORDER BY a.updated_at DESC LIMIT %s"
     args.append(limit)
     with db.connect() as conn:
         rows = conn.execute(q, args).fetchall()
@@ -238,7 +224,7 @@ def status(
     """Update an application's status (e.g. after an interview call)."""
     with db.connect() as conn:
         if ref[:1] == "a" and ref[1:].isdigit():
-            row = conn.execute("SELECT job_id FROM applications WHERE id=?", (int(ref[1:]),)).fetchone()
+            row = conn.execute("SELECT job_id FROM applications WHERE id=%s", (int(ref[1:]),)).fetchone()
             if not row:
                 raise typer.BadParameter(f"no application {ref}")
             job_id = row["job_id"]
@@ -257,7 +243,7 @@ def mark_applied(ref: str, note: str = typer.Option("", "--note", "-m")):
 
 
 @app.command()
-def export(path: str = "data/applications.csv"):
+def export(path: Path = typer.Option(DATA_DIR / "applications.csv", "--path", "-o")):
     """Export the tracker to CSV (opens in Excel/Sheets)."""
     with db.connect() as conn:
         rows = conn.execute(
@@ -274,7 +260,11 @@ def export(path: str = "data/applications.csv"):
 
 
 @app.command("app")
-def run_app(port: int = 8765, open_browser: bool = typer.Option(True, "--open/--no-open")):
+def run_app(
+    port: int = typer.Option(8765, envvar="JOBHUNT_PORT"),
+    host: str = typer.Option("127.0.0.1", envvar="JOBHUNT_HOST", help="0.0.0.0 inside Docker"),
+    open_browser: bool = typer.Option(True, "--open/--no-open"),
+):
     """Start the jobhunt app (local only) and open it in your browser."""
     import threading
     import webbrowser
@@ -287,13 +277,23 @@ def run_app(port: int = 8765, open_browser: bool = typer.Option(True, "--open/--
     console.print(f"jobhunt is running at [bold]{url}[/]  (Ctrl+C to stop)")
     if open_browser:
         threading.Timer(1.2, lambda: webbrowser.open(url)).start()
-    uvicorn.run(api, host="127.0.0.1", port=port, log_level="warning")
+    uvicorn.run(api, host=host, port=port, log_level="warning")
 
 
 @app.command(hidden=True)
 def dashboard(port: int = 8765):
     """Alias for `app`."""
-    run_app(port=port, open_browser=True)
+    run_app(port=port, host="127.0.0.1", open_browser=True)
+
+
+@app.command("import-sqlite")
+def import_sqlite(path: Path = typer.Argument(SQLITE_PATH, exists=True, dir_okay=False, help="Old SQLite database")):
+    """Copy jobs, applications and history from the old SQLite database into PostgreSQL."""
+    with db.connect() as conn:
+        counts = db.import_sqlite(conn, path)
+    for table, n in counts.items():
+        console.print(f"{table}: {n} rows read")
+    console.print("[green]Imported.[/] Rows that were already there were skipped; the SQLite file is unchanged.")
 
 
 @app.command("check-companies")

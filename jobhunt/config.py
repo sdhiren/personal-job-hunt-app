@@ -13,10 +13,11 @@ import yaml
 ROOT = Path(os.environ.get("JOBHUNT_HOME", Path(__file__).resolve().parent.parent))
 CONFIG_DIR = ROOT / "config"
 DATA_DIR = ROOT / "data"
-DB_PATH = DATA_DIR / "jobhunt.db"
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://jobhunt:jobhunt@localhost:5432/jobhunt")
+SQLITE_PATH = DATA_DIR / "jobhunt.db"  # the pre-Postgres store, kept for `jobhunt import-sqlite`
 SCREENSHOT_DIR = DATA_DIR / "screenshots"
 RESUME_DIR = DATA_DIR / "resume"
-BROWSER_PROFILE_DIR = DATA_DIR / "browser-profile"
+BROWSER_PROFILE_DIR = Path(os.environ.get("JOBHUNT_BROWSER_PROFILE", DATA_DIR / "browser-profile"))
 DEFAULT_PROFILE_PATH = CONFIG_DIR / "profile.yaml"  # template shipped with the app
 PROFILE_PATH = DATA_DIR / "profile.yaml"  # the user's own profile (edited in the app)
 SETTINGS_PATH = DATA_DIR / "settings.json"  # Claude connection etc. (chmod 600)
