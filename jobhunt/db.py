@@ -7,12 +7,12 @@ import sqlite3
 import threading
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from functools import lru_cache
 from pathlib import Path
 
 import psycopg
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict
+from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
 from .config import database_conninfo, ensure_dirs
@@ -71,28 +71,15 @@ def now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
-class Row(tuple):
-    """A result row readable by position (`r[0]`) or column name (`r["id"]`), and convertible with `dict(r)`."""
-
-    __slots__ = ()
-    _index: dict[str, int] = {}
-
-    def __getitem__(self, key):
-        if isinstance(key, str):
-            return tuple.__getitem__(self, self._index[key])
-        return tuple.__getitem__(self, key)
-
-    def keys(self):
-        return list(self._index)
+def scalar(conn, query, params=None):
+    """The first column of the first row (e.g. a COUNT), or None when there are no rows."""
+    row = conn.execute(query, params).fetchone()
+    return None if row is None else next(iter(row.values()))
 
 
-@lru_cache(maxsize=256)
-def _row_class(names: tuple[str, ...]) -> type[Row]:
-    return type("Row", (Row,), {"__slots__": (), "_index": {n: i for i, n in enumerate(names)}})
-
-
-def row_factory(cursor):
-    return _row_class(tuple(c.name for c in cursor.description or []))
+def pairs(conn, query, params=None) -> dict:
+    """A two-column query as {first column: second column}, e.g. `SELECT status, COUNT(*) ... GROUP BY status`."""
+    return dict(tuple(r.values()) for r in conn.execute(query, params))
 
 
 class DatabaseUnavailable(RuntimeError):
@@ -125,7 +112,7 @@ def pool() -> ConnectionPool:
         if _pool is None:
             conninfo = database_conninfo()
             check_connection(conninfo)
-            p = ConnectionPool(conninfo, min_size=1, max_size=10, kwargs={"row_factory": row_factory}, open=False)
+            p = ConnectionPool(conninfo, min_size=1, max_size=10, kwargs={"row_factory": dict_row}, open=False)
             p.open(wait=True, timeout=10)
             with p.connection() as conn:
                 conn.execute(SCHEMA)
@@ -152,7 +139,8 @@ _JOB_COLUMNS = (
 ).split()
 # On conflict everything except id and first_seen is refreshed. xmax = 0 only for a freshly inserted row.
 _UPSERT_JOB = sql.SQL(
-    "INSERT INTO jobs ({cols}) VALUES ({vals}) ON CONFLICT (id) DO UPDATE SET {sets} RETURNING (xmax = 0)::int"
+    "INSERT INTO jobs ({cols}) VALUES ({vals}) ON CONFLICT (id) DO UPDATE SET {sets} "
+    "RETURNING (xmax = 0)::int AS inserted"
 ).format(
     cols=sql.SQL(", ").join(map(sql.Identifier, _JOB_COLUMNS)),
     vals=sql.SQL(", ").join(map(sql.Placeholder, _JOB_COLUMNS)),
@@ -186,7 +174,7 @@ def upsert_jobs(conn, jobs: list[Job]) -> tuple[int, int]:
             first_seen=ts,
             last_seen=ts,
         )
-        new += conn.execute(_UPSERT_JOB, row).fetchone()[0]
+        new += conn.execute(_UPSERT_JOB, row).fetchone()["inserted"]
     return new, len(jobs) - new
 
 
@@ -197,7 +185,7 @@ def _aware(s: str | None) -> datetime | None:
     return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
 
 
-def row_to_job(r: Row) -> Job:
+def row_to_job(r: dict) -> Job:
     return Job(
         source=r["source"],
         external_id=r["external_id"],
@@ -248,7 +236,7 @@ def set_status(conn, job_id: str, status: str, note: str = "", method: str | Non
         app_id = conn.execute(
             "INSERT INTO applications (job_id, status, method, updated_at) VALUES (%s,%s,%s,%s) RETURNING id",
             (job_id, status, method, ts),
-        ).fetchone()[0]
+        ).fetchone()["id"]
     else:
         app_id = app["id"]
         conn.execute(
@@ -271,7 +259,7 @@ def set_status(conn, job_id: str, status: str, note: str = "", method: str | Non
 
 def applied_today(conn) -> int:
     day = datetime.now(UTC).date().isoformat()
-    return conn.execute("SELECT COUNT(*) FROM applications WHERE applied_at >= %s", (day,)).fetchone()[0]
+    return scalar(conn, "SELECT COUNT(*) FROM applications WHERE applied_at >= %s", (day,))
 
 
 # ---------------------------------------------------------------- one-off import from the SQLite version

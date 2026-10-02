@@ -53,7 +53,7 @@ def evaluate_cmd():
 
     with db.connect() as conn, console.status("Matching...") as st:
         evaluate_all(conn, lambda msg, pct=None: st.update(msg))
-        counts = dict(conn.execute("SELECT decision, COUNT(*) FROM jobs GROUP BY decision").fetchall())
+        counts = db.pairs(conn, "SELECT decision, COUNT(*) FROM jobs GROUP BY decision")
     console.print("Decisions: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
 
 
@@ -162,7 +162,7 @@ def apply(
             if region:
                 q += " AND j.region=%s"
                 args.append(region)
-            ids = [r[0] for r in conn.execute(q + " ORDER BY j.score DESC NULLS LAST LIMIT %s", (*args, limit))]
+            ids = [r["id"] for r in conn.execute(q + " ORDER BY j.score DESC NULLS LAST LIMIT %s", (*args, limit))]
         if not ids:
             console.print("Nothing to apply to. Run [bold]jobhunt scrape[/] or check [bold]jobhunt list -d review[/].")
             return
@@ -258,7 +258,7 @@ def export(path: Path = typer.Option(DATA_DIR / "applications.csv", "--path", "-
         w = csv.writer(f)
         if rows:
             w.writerow(rows[0].keys())
-        w.writerows([tuple(r) for r in rows])
+        w.writerows(r.values() for r in rows)
     console.print(f"wrote {len(rows)} rows to {path}")
 
 

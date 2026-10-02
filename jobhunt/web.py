@@ -262,7 +262,7 @@ def jobs(
         sql += " AND (a.status IS NULL OR a.status = ANY(%s))"
         args.append(list(db.OPEN_STATUSES))
     with db.connect() as conn:
-        total = conn.execute(f"SELECT COUNT(*) FROM ({sql}) AS matched", args).fetchone()[0]
+        total = db.scalar(conn, f"SELECT COUNT(*) FROM ({sql}) AS matched", args)
         rows = conn.execute(
             sql + " ORDER BY j.score DESC NULLS LAST, j.posted_at DESC NULLS LAST LIMIT %s OFFSET %s",
             (*args, limit, offset),
@@ -409,7 +409,7 @@ def export_csv():
             "j.is_wfh, j.visa, j.rating, j.score, j.url, a.notes FROM applications a JOIN jobs j ON "
             "j.id=a.job_id ORDER BY a.updated_at DESC"
         ):
-            w.writerow(tuple(r))
+            w.writerow(r.values())
     return StreamingResponse(
         iter([buf.getvalue()]),
         media_type="text/csv",

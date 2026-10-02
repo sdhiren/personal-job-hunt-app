@@ -259,7 +259,7 @@ def run_search(progress: Progress = _noop, sources: list[str] | None = None, use
                 progress("Skipping Claude scoring until the usage limit resets", None)
             else:
                 scored, limit = claude_score(conn, progress)
-        counts = dict(conn.execute("SELECT decision, COUNT(*) FROM jobs GROUP BY decision").fetchall())
+        counts = db.pairs(conn, "SELECT decision, COUNT(*) FROM jobs GROUP BY decision")
     summary = {
         "fetched": len(jobs),
         "new": new,
@@ -275,11 +275,9 @@ def run_search(progress: Progress = _noop, sources: list[str] | None = None, use
 
 def stats() -> dict:
     with db.connect() as conn:
-        q = lambda sql, *a: conn.execute(sql, a).fetchone()[0]  # noqa: E731
-        by_status = dict(conn.execute("SELECT status, COUNT(*) FROM applications GROUP BY status").fetchall())
-        by_region = dict(
-            conn.execute("SELECT region, COUNT(*) FROM jobs WHERE decision='apply' GROUP BY region").fetchall()
-        )
+        q = lambda sql: db.scalar(conn, sql)  # noqa: E731
+        by_status = db.pairs(conn, "SELECT status, COUNT(*) FROM applications GROUP BY status")
+        by_region = db.pairs(conn, "SELECT region, COUNT(*) FROM jobs WHERE decision='apply' GROUP BY region")
         recent = [
             dict(r)
             for r in conn.execute(
