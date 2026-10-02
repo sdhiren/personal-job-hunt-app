@@ -37,7 +37,10 @@ services:
         required: false
     environment:
       JOBHUNT_PORT: "8765" # in-container port; the host side is JOBHUNT_PORT below
-      DATABASE_URL: postgresql://${POSTGRES_USER:-jobhunt}:${POSTGRES_PASSWORD:-jobhunt}@db:5432/${POSTGRES_DB:-jobhunt}
+      # The app reads POSTGRES_USER/PASSWORD/DB from .env; inside the compose network the database is db:5432
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      DATABASE_URL: "" # ignore a DATABASE_URL meant for a native run
       JOBHUNT_BROWSER_VIEW_URL: http://localhost:${JOBHUNT_VNC_PORT:-6080}/vnc.html?autoconnect=1&resize=scale
     ports:
       - "127.0.0.1:${JOBHUNT_PORT:-8765}:8765"

@@ -10,11 +10,12 @@ from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 
+import psycopg
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict
-from psycopg_pool import ConnectionPool, PoolTimeout
+from psycopg_pool import ConnectionPool
 
-from .config import DATABASE_URL, ensure_dirs
+from .config import database_conninfo, ensure_dirs
 from .models import Evaluation, Job
 
 APP_STATUSES = [
@@ -94,6 +95,25 @@ def row_factory(cursor):
     return _row_class(tuple(c.name for c in cursor.description or []))
 
 
+class DatabaseUnavailable(RuntimeError):
+    """PostgreSQL can't be reached or refused the login; the message says why and what to do."""
+
+
+def check_connection(conninfo: str) -> None:
+    """Connect once, so a bad host/port/password surfaces as one clear error instead of pool retries."""
+    try:
+        psycopg.connect(conninfo, connect_timeout=5).close()
+    except psycopg.OperationalError as e:
+        where = conninfo_to_dict(conninfo)
+        # libpq says 'connection to server at "host", port N failed: <cause>' (plus hints); keep the cause
+        reason = " ".join(str(e).split()).rpartition(" failed: ")[2]
+        raise DatabaseUnavailable(
+            f"Can't connect to PostgreSQL at {where.get('host', 'localhost')}:{where.get('port', 5432)}: {reason}\n"
+            "Is it running (`make db-up`)? Do the POSTGRES_* settings in .env match the ones the database was "
+            "created with? (They only apply when it is first created.)"
+        ) from None
+
+
 _pool: ConnectionPool | None = None
 _pool_lock = threading.Lock()
 
@@ -103,16 +123,10 @@ def pool() -> ConnectionPool:
     global _pool
     with _pool_lock:
         if _pool is None:
-            p = ConnectionPool(DATABASE_URL, min_size=1, max_size=10, kwargs={"row_factory": row_factory}, open=False)
-            try:
-                p.open(wait=True, timeout=10)
-            except PoolTimeout as e:
-                p.close()
-                where = conninfo_to_dict(DATABASE_URL)
-                raise RuntimeError(
-                    f"Can't reach PostgreSQL at {where.get('host', 'localhost')}:{where.get('port', 5432)}. "
-                    "Start it with `make db-up` (or set DATABASE_URL)."
-                ) from e
+            conninfo = database_conninfo()
+            check_connection(conninfo)
+            p = ConnectionPool(conninfo, min_size=1, max_size=10, kwargs={"row_factory": row_factory}, open=False)
+            p.open(wait=True, timeout=10)
             with p.connection() as conn:
                 conn.execute(SCHEMA)
             _pool = p

@@ -9,11 +9,12 @@ from functools import lru_cache
 from pathlib import Path
 
 import yaml
+from dotenv import load_dotenv
+from psycopg.conninfo import make_conninfo
 
 ROOT = Path(os.environ.get("JOBHUNT_HOME", Path(__file__).resolve().parent.parent))
 CONFIG_DIR = ROOT / "config"
 DATA_DIR = ROOT / "data"
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://jobhunt:jobhunt@localhost:5432/jobhunt")
 SQLITE_PATH = DATA_DIR / "jobhunt.db"  # the pre-Postgres store, kept for `jobhunt import-sqlite`
 SCREENSHOT_DIR = DATA_DIR / "screenshots"
 RESUME_DIR = DATA_DIR / "resume"
@@ -21,6 +22,29 @@ BROWSER_PROFILE_DIR = Path(os.environ.get("JOBHUNT_BROWSER_PROFILE", DATA_DIR / 
 DEFAULT_PROFILE_PATH = CONFIG_DIR / "profile.yaml"  # template shipped with the app
 PROFILE_PATH = DATA_DIR / "profile.yaml"  # the user's own profile (edited in the app)
 SETTINGS_PATH = DATA_DIR / "settings.json"  # Claude connection etc. (chmod 600)
+
+# .env holds the database password and ports (see .env.example). Real environment variables win, so
+# Docker's own settings for the app container aren't overridden. Quoting follows docker compose: wrap a
+# value in single quotes if it contains `$`.
+load_dotenv(ROOT / ".env", override=False, interpolate=False)
+
+
+def database_conninfo() -> str:
+    """How to reach PostgreSQL: DATABASE_URL if set, otherwise the POSTGRES_* settings.
+
+    Built with psycopg's make_conninfo, which quotes each value, so passwords may contain any character
+    (a hand-built postgresql:// URL breaks on `@`, `:`, `/` or `#`).
+    """
+    if url := os.environ.get("DATABASE_URL"):
+        return url
+    env = os.environ.get
+    return make_conninfo(
+        host=env("POSTGRES_HOST", "localhost"),
+        port=env("POSTGRES_PORT", "5432"),
+        user=env("POSTGRES_USER", "jobhunt"),
+        password=env("POSTGRES_PASSWORD", "jobhunt"),
+        dbname=env("POSTGRES_DB", "jobhunt"),
+    )
 
 
 @dataclass(frozen=True)

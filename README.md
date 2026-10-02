@@ -77,6 +77,10 @@ make help      # every command (search, list, apply, track, database, Docker, li
 
 To use a PostgreSQL you already run, set `DATABASE_URL` in `.env` (for example `postgresql://user:pass@localhost:5432/jobhunt`) and start the app with `PYTHONPATH=. .venv/bin/python -m jobhunt app`. The tables are created automatically on first start.
 
+### Settings (`.env`)
+
+Copy `.env.example` to `.env` **before the first start**. Both the app and `docker compose` read it. The database password can contain any character, but wrap the value in single quotes if it contains `$` (for example `POSTGRES_PASSWORD='My$ecret@123'`). `POSTGRES_*` values are applied only when the database is first created. To change them later, either run `ALTER USER … PASSWORD …` in `make db-shell`, or start fresh with `docker compose down -v`, which **deletes the data**, so run `make db-backup` first. If the app can't connect, it says why (for example *password authentication failed*) and exits.
+
 ### Moving from the SQLite version
 
 Earlier versions stored everything in `data/jobhunt.db`. Copy it into PostgreSQL once:

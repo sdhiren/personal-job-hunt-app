@@ -31,7 +31,8 @@ const STATUS_TONE = { applied: "green", screening: "info", interviewing: "info",
 async function api(path, opts = {}) {
   const o = { ...opts };
   if (o.body && !(o.body instanceof FormData)) { o.body = JSON.stringify(o.body); o.headers = { "Content-Type": "application/json" }; }
-  const r = await fetch(path, o);
+  let r;
+  try { r = await fetch(path, o); } catch { throw new Error("Can't reach the jobhunt app. Is it still running?"); }
   const ct = r.headers.get("content-type") || "";
   const data = ct.includes("json") ? await r.json() : await r.text();
   if (!r.ok) throw new Error((data && data.detail) || r.statusText);
@@ -83,7 +84,14 @@ function route() {
   renderNav();
   closeDrawer();
   window.scrollTo(0, 0);
-  r.render($("#page"));
+  renderPage(r);
+}
+// A page whose data fails to load shows the reason (e.g. the database is down) instead of spinning forever
+function renderPage(r) {
+  const el = $("#page");
+  Promise.resolve().then(() => r.render(el)).catch(e => {
+    el.innerHTML = `<div class="empty"><b>Couldn't load this page.</b><div class="small muted" style="white-space:pre-line;margin-top:8px">${esc(e.message)}</div></div>`;
+  });
 }
 window.addEventListener("hashchange", route);
 function renderNav() {
@@ -93,7 +101,7 @@ function renderNav() {
   $("#nav").innerHTML = Object.entries(ROUTES).map(([k, v]) =>
     `<a href="#/${k}" class="${cur === v ? "on" : ""}">${svg(v.icon)}${v.title}${k === "jobs" ? badge(state.counts.matches) : ""}${k === "applications" ? badge(state.counts.todo) : ""}</a>`).join("");
 }
-const rerender = () => { const n = (location.hash.replace(/^#\//, "") || "dashboard"); (ROUTES[n] || ROUTES.dashboard).render($("#page")); };
+const rerender = () => { const n = (location.hash.replace(/^#\//, "") || "dashboard"); renderPage(ROUTES[n] || ROUTES.dashboard); };
 
 // ------------------------------------------------------------------ tooltip for charts
 document.addEventListener("mousemove", e => {

@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -30,6 +30,11 @@ from .tasks import apply_queue, search_task
 
 STATIC = Path(__file__).parent / "static"
 api = FastAPI(title="jobhunt")
+
+
+@api.exception_handler(db.DatabaseUnavailable)
+def database_unavailable(request, exc: db.DatabaseUnavailable):
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
 
 
 # ---------------------------------------------------------------- profile & resume

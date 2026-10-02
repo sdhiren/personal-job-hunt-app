@@ -4,22 +4,16 @@
 	docker-search docker-list docker-apply docker-track docker-import-sqlite \
 	lint format clean
 
-# Settings come from .env when present (see .env.example)
--include .env
-POSTGRES_USER ?= jobhunt
-POSTGRES_PASSWORD ?= jobhunt
-POSTGRES_DB ?= jobhunt
-POSTGRES_PORT ?= 5432
-JOBHUNT_PORT ?= 8765
-JOBHUNT_VNC_PORT ?= 6080
-DATABASE_URL ?= postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@localhost:$(POSTGRES_PORT)/$(POSTGRES_DB)
-export DATABASE_URL
+# Settings live in .env (see .env.example). The app and docker compose read it themselves; make doesn't,
+# because make would mangle values containing `$`.
 
 PY := .venv/bin/python
 RUN := PYTHONPATH=. $(PY) -m jobhunt
 COMPOSE := docker compose
 JH := $(COMPOSE) exec app jobhunt
-PSQL := $(COMPOSE) exec -T db psql -U $(POSTGRES_USER) -d $(POSTGRES_DB)
+# psql/pg_dump inside the db container, using that container's own user and database name
+DB_EXEC = $(COMPOSE) exec $(1) db sh -c '$(2) -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" $(3)'
+
 
 help:  ## Show available commands
 	@awk 'BEGIN {FS = ":.*## "} /^##@/ {printf "\n%s\n", substr($$0, 5)} /^[a-z-]+:.*## / {printf "  make %-22s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -58,25 +52,24 @@ db-down:  ## Stop PostgreSQL (data is kept)
 	$(COMPOSE) stop db
 
 db-shell: db-up  ## Open psql on the jobhunt database
-	$(COMPOSE) exec db psql -U $(POSTGRES_USER) -d $(POSTGRES_DB)
+	$(call DB_EXEC,,psql)
 
 db-backup: db-up  ## Dump the database to data/backups/
 	@mkdir -p data/backups
-	$(COMPOSE) exec -T db pg_dump -U $(POSTGRES_USER) -d $(POSTGRES_DB) --clean --if-exists \
-		> data/backups/jobhunt-$$(date +%Y%m%d-%H%M%S).sql
+	$(call DB_EXEC,-T,pg_dump,--clean --if-exists) > data/backups/jobhunt-$$(date +%Y%m%d-%H%M%S).sql
 	@ls -t data/backups/*.sql | head -1
 
 db-restore: db-up  ## Restore a dump: make db-restore FILE=data/backups/<file>.sql
 	@test -n "$(FILE)" || (echo "usage: make db-restore FILE=data/backups/<file>.sql" && exit 1)
-	$(PSQL) -v ON_ERROR_STOP=1 < $(FILE)
+	$(call DB_EXEC,-T,psql,-v ON_ERROR_STOP=1) < "$(FILE)"
 
 ##@ Run everything in Docker
 
 up:  ## Build and start the app + PostgreSQL in Docker
 	@mkdir -p data  # created by you, not by Docker as root, so the container can write to it
 	$(COMPOSE) up -d --build --wait
-	@echo "jobhunt:       http://localhost:$(JOBHUNT_PORT)"
-	@echo "apply browser: http://localhost:$(JOBHUNT_VNC_PORT)/vnc.html?autoconnect=1&resize=scale"
+	@echo "jobhunt:       http://$$($(COMPOSE) port app 8765)"
+	@echo "apply browser: http://$$($(COMPOSE) port app 6080)/vnc.html?autoconnect=1&resize=scale"
 
 down:  ## Stop the containers (database and settings are kept)
 	$(COMPOSE) down
@@ -94,7 +87,7 @@ shell:  ## Open a shell in the app container
 	$(COMPOSE) exec app bash
 
 browser:  ## Print the address of the in-container application browser
-	@echo "http://localhost:$(JOBHUNT_VNC_PORT)/vnc.html?autoconnect=1&resize=scale"
+	@echo "http://$$($(COMPOSE) port app 6080)/vnc.html?autoconnect=1&resize=scale"
 
 docker-claude-login:  ## Sign Claude Code (your Pro/Max plan) in inside the container
 	$(COMPOSE) exec app claude auth login --claudeai
