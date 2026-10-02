@@ -1,0 +1,55 @@
+# jobhunt: the app and its PostgreSQL database.
+#   make up      -> everything in Docker (app at http://localhost:8765, apply browser at http://localhost:6080)
+#   make db-up   -> only PostgreSQL, for running the app natively with `make run`
+# Ports are published to 127.0.0.1 only, so nothing is reachable from your network.
+name: jobhunt
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-jobhunt}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jobhunt}
+      POSTGRES_DB: ${POSTGRES_DB:-jobhunt}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      args:
+        INSTALL_CLAUDE_CODE: ${INSTALL_CLAUDE_CODE:-1}
+    image: jobhunt:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      JOBHUNT_PORT: "8765" # in-container port; the host side is JOBHUNT_PORT below
+      DATABASE_URL: postgresql://${POSTGRES_USER:-jobhunt}:${POSTGRES_PASSWORD:-jobhunt}@db:5432/${POSTGRES_DB:-jobhunt}
+      JOBHUNT_BROWSER_VIEW_URL: http://localhost:${JOBHUNT_VNC_PORT:-6080}/vnc.html?autoconnect=1&resize=scale
+    ports:
+      - "127.0.0.1:${JOBHUNT_PORT:-8765}:8765"
+      - "127.0.0.1:${JOBHUNT_VNC_PORT:-6080}:6080"
+    volumes:
+      - ./data:/app/data # profile, resume, settings, screenshots (shared with a native run)
+      - ./config:/app/config # company list and profile template, editable without a rebuild
+      - browser-profile:/home/app/browser-profile # ATS logins/cookies for the container's Chromium
+      - claude-config:/home/app/.claude # Claude Code sign-in (make docker-claude-login)
+    shm_size: 1gb # Chromium needs more than Docker's 64 MB default
+
+volumes:
+  pgdata:
+  browser-profile:
+  claude-config:

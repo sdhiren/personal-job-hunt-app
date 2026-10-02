@@ -3,6 +3,7 @@ a single browser window."""
 
 from __future__ import annotations
 
+import os
 import queue
 import threading
 import time
@@ -81,7 +82,12 @@ class ApplyQueue:
 
     def snapshot(self) -> dict:
         with self.lock:
-            return {"current": self.current, "pending": list(self.pending)}
+            return {
+                "current": self.current,
+                "pending": list(self.pending),
+                # in Docker the browser runs on a virtual display you open in a tab (noVNC)
+                "browser_view": os.environ.get("JOBHUNT_BROWSER_VIEW_URL") or None,
+            }
 
     def add(self, job_ids: list[str]) -> int:
         from .config import profile
@@ -114,7 +120,7 @@ class ApplyQueue:
                 except queue.Empty:
                     break
                 with db.connect() as conn:
-                    r = conn.execute("SELECT * FROM jobs WHERE id=?", (jid,)).fetchone()
+                    r = conn.execute("SELECT * FROM jobs WHERE id=%s", (jid,)).fetchone()
                     if not r:
                         continue
                     job = db.row_to_job(r)

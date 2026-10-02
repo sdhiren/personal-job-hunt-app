@@ -76,6 +76,8 @@ def start_account_login() -> str:
     exe = cli_path()
     if not exe:
         raise ClaudeError("Claude Code is not installed. Install it from https://claude.com/claude-code first.")
+    if os.environ.get("JOBHUNT_IN_DOCKER"):
+        return "Run `make docker-claude-login` in a terminal on your computer, then click Refresh."
     cmd = f"'{exe}' auth login --claudeai"
     if sys.platform == "darwin":
         subprocess.Popen(

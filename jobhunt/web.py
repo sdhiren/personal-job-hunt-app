@@ -1,4 +1,4 @@
-"""Local app server (127.0.0.1 only): JSON API + the single-page UI in ./static."""
+"""Local app server (127.0.0.1, or published to localhost only by Docker): JSON API + the UI in ./static."""
 
 from __future__ import annotations
 
@@ -383,6 +383,8 @@ def export_csv():
 @api.get("/api/screenshot")
 def screenshot(path: str):
     p = Path(path).resolve()
+    if not p.exists():  # recorded on the other side of Docker: same file, different mount point
+        p = (SCREENSHOT_DIR / Path(path).name).resolve()
     if SCREENSHOT_DIR.resolve() not in p.parents or not p.exists():
         raise HTTPException(404)
     return FileResponse(p)

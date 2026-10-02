@@ -274,7 +274,11 @@ def export(path: str = "data/applications.csv"):
 
 
 @app.command("app")
-def run_app(port: int = 8765, open_browser: bool = typer.Option(True, "--open/--no-open")):
+def run_app(
+    port: int = typer.Option(8765, envvar="JOBHUNT_PORT"),
+    host: str = typer.Option("127.0.0.1", envvar="JOBHUNT_HOST", help="0.0.0.0 inside Docker"),
+    open_browser: bool = typer.Option(True, "--open/--no-open"),
+):
     """Start the jobhunt app (local only) and open it in your browser."""
     import threading
     import webbrowser
@@ -287,13 +291,13 @@ def run_app(port: int = 8765, open_browser: bool = typer.Option(True, "--open/--
     console.print(f"jobhunt is running at [bold]{url}[/]  (Ctrl+C to stop)")
     if open_browser:
         threading.Timer(1.2, lambda: webbrowser.open(url)).start()
-    uvicorn.run(api, host="127.0.0.1", port=port, log_level="warning")
+    uvicorn.run(api, host=host, port=port, log_level="warning")
 
 
 @app.command(hidden=True)
 def dashboard(port: int = 8765):
     """Alias for `app`."""
-    run_app(port=port, open_browser=True)
+    run_app(port=port, host="127.0.0.1", open_browser=True)
 
 
 @app.command("import-sqlite")
