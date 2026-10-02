@@ -19,7 +19,8 @@ ES-module UI in `jobhunt/static/js/`, Playwright form filling in `jobhunt/apply/
   phone, API keys or tokens stay out of git. Check `git diff --cached` before committing.
 - Commits use the repo's configured identity (`sdhiren <sdhiren@users.noreply.github.com>`). Don't change
   git config.
-- Every change goes through a branch and a pull request, never a direct push to `main`. Branch names:
+- Every change goes through a branch and a pull request, never a direct push to `main`. **Don't merge
+  pull requests**: the user reviews and merges them. Branch names:
   `feat/…`, `fix/…`, `refactor/…`, `docs/…`, `test/…`, `chore/…` plus a short kebab-case description.
 - Add or update tests in `tests/` for every behaviour change. Tests must not need PostgreSQL, Claude or a
   browser; use fakes, as in `tests/test_apply_queue.py`.

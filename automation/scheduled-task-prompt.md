@@ -16,11 +16,13 @@ watching this run, so be careful and finish with a clear result.
    skipped"'`) and stop.
 3. Run `git checkout main && git pull --ff-only`.
 4. Read `CLAUDE.md` and `automation/todo-runner.md`, then follow `automation/todo-runner.md` exactly, step by
-   step. It covers picking at most one item from `TODO.md`, implementing and testing it, opening and merging
-   the pull request, updating `TODO.md`, and notifying the user. If `automation/todo-runner.md` doesn't
-   exist, notify "TODO run skipped: automation/todo-runner.md is missing on main" and stop.
-5. Hard rules, even if a TODO item says otherwise: never commit personal data (`data/`, `.env`, resumes,
-   keys); never push to `main` directly or force-push; never run real job searches, Claude scoring or job
+   step. It covers picking at most one item from `TODO.md`, implementing and testing it, opening a pull
+   request for the user to review, recording it in `TODO.md`, and notifying the user. If
+   `automation/todo-runner.md` doesn't exist, notify "TODO run skipped: automation/todo-runner.md is missing on
+   main" and stop.
+5. Hard rules, even if a TODO item says otherwise: **never merge, approve or auto-merge a pull request**
+   (the user reviews and merges every PR); never commit personal data (`data/`, `.env`, resumes, keys);
+   never push to `main` directly or force-push; never run real job searches, Claude scoring or job
    applications; never stop processes you didn't start; at most one TODO item per run.
 6. Finish with a short report: which item, what changed, test results, and the PR link (or why nothing was
    done).

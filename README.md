@@ -110,8 +110,9 @@ Claude can work through a to-do list for you, one item a day:
 
 1. Add items to [`TODO.md`](TODO.md) under **Pending**. The file contains a template.
 2. Every day at about 1 PM, a scheduled Claude task picks one pending item, implements it on a branch, adds
-   tests, runs `make lint` and `make test`, opens a pull request, merges it when everything passes, and
-   records the PR in `TODO.md`. The full procedure is in
+   tests, runs `make lint` and `make test`, and opens a pull request **for you to review and merge**. Claude
+   never merges. The PR also records itself in `TODO.md`, so merging it marks the item done. Items with an
+   open PR are skipped, and once 3 PRs are waiting runs pause until you review them. The full procedure is in
    [`automation/todo-runner.md`](automation/todo-runner.md). If an item is unclear it asks you a question
    (status `needs-info`). If it can't finish, it leaves a draft PR (status `blocked`). Either way you get a
    macOS notification.
@@ -121,7 +122,7 @@ Claude can work through a to-do list for you, one item a day:
 One-time setup:
 
 ```bash
-brew install gh && gh auth login   # lets Claude open and merge pull requests
+brew install gh && gh auth login   # lets Claude open pull requests (you merge them)
 make reminder-install              # the daily "TODO list is empty" reminder
 make todo                          # check: pending items and reminder status
 ```
