@@ -31,6 +31,8 @@ What Claude does (each can be switched off):
 3. **Scores your best matches** against your resume: up to 40 per search, starting with the jobs it found itself. Scoring stops early if your Claude usage limit is reached, and the remaining jobs are scored on a later search.
 4. **Drafts answers** to free-text application questions, using only facts from your resume.
 
+All prompts are in [`jobhunt/prompts.py`](jobhunt/prompts.py), one versioned `Prompt` per task. If you change a prompt, bump its `version`. Each Claude score is saved with the version that produced it, so after a scoring-prompt change the old scores are redone gradually, after any unscored jobs. With an API key, the resume part of each request is cached, so scoring 40 jobs pays full price for the resume only once.
+
 ## Job rules (editable on the Profile page)
 
 | Rule | Default |

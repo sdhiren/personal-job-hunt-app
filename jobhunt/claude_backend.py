@@ -5,7 +5,9 @@
             this app never sees your password or tokens.
 * api_key — the Anthropic API with a key from console.anthropic.com (billed per token).
 
-Both expose `structured(prompt, schema, system, web=False)` -> dict that matches `schema`.
+Both expose `structured(prompt, schema, system, web=False, cache_prefix=None)` -> dict matching `schema`.
+`cache_prefix` is the part of the message that repeats across calls (the resume); the API backend
+caches it, the account backend simply sends it in front of `prompt`.
 """
 
 from __future__ import annotations
@@ -140,7 +142,15 @@ class AccountBackend:
         self.workdir = DATA_DIR / "claude-work"  # neutral cwd: no project CLAUDE.md / settings
         self.workdir.mkdir(parents=True, exist_ok=True)
 
-    def structured(self, prompt: str, schema: dict, system: str, web: bool = False, timeout: int = 900) -> dict:
+    def structured(
+        self,
+        prompt: str,
+        schema: dict,
+        system: str,
+        web: bool = False,
+        timeout: int = 900,
+        cache_prefix: str | None = None,
+    ) -> dict:
         tools = "WebSearch,WebFetch" if web else ""
         args = [
             self.exe,
@@ -167,7 +177,13 @@ class AccountBackend:
             args += ["--model", self.model]
         try:
             proc = subprocess.run(
-                args, input=prompt, capture_output=True, text=True, timeout=timeout, cwd=self.workdir, env=_cli_env()
+                args,
+                input=f"{cache_prefix}\n\n{prompt}" if cache_prefix else prompt,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                cwd=self.workdir,
+                env=_cli_env(),
             )
         except subprocess.TimeoutExpired as e:
             raise ClaudeError("Claude Code timed out") from e
@@ -196,13 +212,22 @@ class ApiBackend:
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model or "claude-opus-5"
 
-    def structured(self, prompt: str, schema: dict, system: str, web: bool = False, timeout: int = 420) -> dict:
+    def structured(
+        self,
+        prompt: str,
+        schema: dict,
+        system: str,
+        web: bool = False,
+        timeout: int = 420,
+        cache_prefix: str | None = None,
+    ) -> dict:
         import anthropic
 
         try:
             if web:
-                return self._structured_with_search(prompt, schema, system)
-            return self._structured(prompt, schema, system)
+                full = f"{cache_prefix}\n\n{prompt}" if cache_prefix else prompt
+                return self._structured_with_search(full, schema, system)
+            return self._structured(prompt, schema, system, cache_prefix)
         except anthropic.RateLimitError as e:  # still limited after the SDK's own retries
             retry_after = e.response.headers.get("retry-after")
             raise ClaudeUsageLimit(
@@ -213,13 +238,16 @@ class ApiBackend:
                 raise ClaudeUsageLimit("Anthropic API credit balance is too low") from e
             raise
 
-    def _structured(self, prompt: str, schema: dict, system: str) -> dict:
+    def _structured(self, prompt: str, schema: dict, system: str, cache_prefix: str | None) -> dict:
+        content: list[dict] = [{"type": "text", "text": prompt}]
+        if cache_prefix:  # system + this block form the cached prefix; only the job text is new per call
+            content.insert(0, {"type": "text", "text": cache_prefix, "cache_control": {"type": "ephemeral"}})
         resp = self.client.messages.create(
             model=self.model,
             max_tokens=16000,
             system=system,
             output_config={"effort": "low", "format": {"type": "json_schema", "schema": schema}},
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": content}],
         )
         if resp.stop_reason == "refusal":
             raise ClaudeError("Claude declined this request")
