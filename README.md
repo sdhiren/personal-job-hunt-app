@@ -116,3 +116,17 @@ All ports are published to `127.0.0.1` only, so nothing is reachable from your n
 | `data/backups/` | Database dumps from `make db-backup` |
 
 `config/` holds the shipped template and the company list. `make down` keeps all of this. Only `docker compose down -v` deletes the database volume.
+
+## CI
+
+GitHub Actions (`.github/workflows/ci.yml`) runs these checks on every pull request and every push to `main`:
+
+| Check | What it runs |
+|---|---|
+| Build | Installs the package with its dev dependencies (Python 3.12) and builds the Docker image (not pushed) |
+| Test | `make lint` and `make test` |
+| Secret detection | [gitleaks](https://github.com/gitleaks/gitleaks) over the code and the whole git history |
+| SAST | [CodeQL](https://codeql.github.com/) for the Python and JavaScript code; findings appear under *Security → Code scanning* |
+| Dependency audit | [pip-audit](https://github.com/pypa/pip-audit) on the installed dependencies, against known vulnerabilities |
+
+All of them are free and need no secrets.
