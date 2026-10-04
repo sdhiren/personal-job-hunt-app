@@ -1,5 +1,0 @@
-#!/bin/sh
-# Launcher that doesn't depend on the venv's .pth file (macOS can hide it, breaking editable installs).
-DIR="$(cd "$(dirname "$0")" && pwd)"
-export PYTHONPATH="$DIR${PYTHONPATH:+:$PYTHONPATH}"
-exec "$DIR/.venv/bin/python" -m jobhunt "$@"
