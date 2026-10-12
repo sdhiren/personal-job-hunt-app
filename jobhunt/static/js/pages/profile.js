@@ -163,8 +163,19 @@ export async function renderProfile(el) {
     toast("Profile filled from your resume — review the highlighted fields, then Save", "ok");
   });
 
+  // Text typed into a chip box or the skill box but not yet confirmed with Enter still counts on Save
+  const commitPending = () => {
+    $$(".chipinput", el).forEach(box => {
+      const t = $("input", box).value.trim(), v = JSON.parse(box.dataset.values);
+      if (t && !v.some(x => x.toLowerCase() === t.toLowerCase())) box.dataset.values = JSON.stringify([...v, t]);
+    });
+    const s = $("#addskill").value.trim();
+    if (s && !skills.some(x => x.name.toLowerCase() === s.toLowerCase())) skills.push({ name: s, weight: 2 });
+  };
+
   $("#reset").onclick = () => renderProfile(el);
   $("#save").onclick = e => withBusy(e.currentTarget, async () => {
+    commitPending();
     const out = {};
     $$("[data-path]", el).forEach(f => {
       let v = f.type === "checkbox" ? f.checked : f.value;
@@ -176,8 +187,10 @@ export async function renderProfile(el) {
     setPath(out, "candidate.target_titles", JSON.parse($("#titles").dataset.values));
     setPath(out, "matching.skills", skills.map(s => ({ name: s.name, weight: s.weight, ...(s.pattern ? { pattern: s.pattern } : { aliases: s.aliases || [] }) })));
     setPath(out, "apply.mode", ($("input[name=amode]:checked", el) || {}).value || "review");
-    await api("/api/profile", { method: "PUT", body: out });
-    renderProfile(el);
+    try { await api("/api/profile", { method: "PUT", body: out }); }
+    catch (err) { throw new Error(`Couldn't save your profile: ${err.message}`); }  // withBusy shows it; no search offer
+    toast("Profile updated", "ok");
+    await renderProfile(el);  // show the saved values before asking, so "Not now" leaves them on screen
     const search = await confirmDialog({
       title: "Profile saved",
       body: "Run a job search now? It finds new jobs and re-scores all your saved jobs against the updated profile. " +
